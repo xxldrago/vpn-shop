@@ -1,0 +1,57 @@
+# ============================================================================
+# VpnShop — docker compose (web shop + telegram bot)
+#
+# The shop code is built from ./.. (the repo root). Both containers share the
+# same SQLite database via a named volume, and the same codebase — only the
+# CMD differs. This is why run.sh / run_bot.sh are used as command overrides.
+#
+# Usage:
+#   cp deploy/.env.example deploy/.env     # then edit deploy/.env
+#   sudo docker compose -f deploy/docker-compose.yml up -d --build
+#
+# Public HTTPS (shop + webhook) is fronted by nginx on the host (see install.sh).
+# ============================================================================
+name: vpnshop
+
+services:
+  shop:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    # Override entrypoint so the container runs app.py (web) with env config
+    command: ["python", "app.py"]
+    env_file:
+      - .env
+    environment:
+      - SHOP_PORT=8080
+    volumes:
+      - shop_data:/app/data
+    restart: unless-stopped
+    network_mode: host        # so shop can reach the panel on 127.0.0.1:5000
+    # healthcheck
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  bot:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: ["python", "bot.py"]
+    env_file:
+      - .env
+    environment:
+      - SHOP_PORT=8080
+    volumes:
+      - shop_data:/app/data
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      shop:
+        condition: service_started
+
+volumes:
+  shop_data:

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="auth-card glass">
+  <h2 style="margin-top:0;">Вход</h2>
+  <p class="muted mb-2">Войдите, чтобы получить доступ к личному кабинету.</p>
+  {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+  <form method="post" action="/login">
+    <div class="form-group">
+      <label>Логин</label>
+      <input class="form-control" name="username" required autocomplete="username">
+    </div>
+    <div class="form-group">
+      <label>Пароль</label>
+      <input class="form-control" type="password" name="password" required autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary btn-block" type="submit">Войти</button>
+  </form>
+  <div class="center muted mt-2">
+    Нет аккаунта? <a href="/register" style="color:var(--primary-2);">Зарегистрироваться</a>
+  </div>
+</div>
+{% endblock %}

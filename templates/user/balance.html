@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-title">Баланс</div>
+<div class="page-sub">Скидочный баланс — начисленные бонусы, которые списываются при оплате подписки.</div>
+
+<div class="card stat mb-2" style="max-width:400px;">
+  <div class="stat-label">Скидочный баланс</div>
+  <div class="stat-value" style="color:var(--success,#36b37e); font-size:2rem;">{{ "%.2f"|format(balance) }} ₽</div>
+  <div class="card-sub">При покупке тарифа эта сумма покроет часть стоимости.</div>
+</div>
+
+<div class="section-title">История операций</div>
+{% if transactions %}
+<div class="card">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Дата</th>
+        <th>Описание</th>
+        <th style="text-align:right;">Сумма</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in transactions %}
+      <tr>
+        <td>{{ (t.created_at or '')[:16].replace('T',' ') }}</td>
+        <td>{{ t.note or t.kind }}</td>
+        <td style="text-align:right; {% if t.amount >= 0 %}color:var(--success,#36b37e);{% else %}color:var(--danger,#e5533b);{% endif %}">
+          {{ "+" if t.amount >= 0 else "" }}{{ "%.2f"|format(t.amount) }} ₽
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="alert alert-info mt-2">Пока нет операций по балансу. Приглашайте друзей по реферальной ссылке, чтобы получать бонусы.</div>
+{% endif %}
+<div class="actions mt-2">
+  <a class="btn btn-ghost btn-sm" href="/dashboard">← Назад</a>
+</div>
+{% endblock %}

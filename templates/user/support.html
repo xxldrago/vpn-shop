@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-title">Поддержка</div>
+<div class="page-sub">Создайте обращение или напишите в существующий тикет.</div>
+
+<div class="card mb-2">
+  <form method="post" action="/dashboard/support/create">
+    <div class="form-group">
+      <label>Тема</label>
+      <input class="form-control" name="subject" required>
+    </div>
+    <div class="form-group">
+      <label>Сообщение</label>
+      <textarea class="form-control" name="message" rows="3" required></textarea>
+    </div>
+    <button class="btn btn-primary" type="submit">Создать тикет</button>
+  </form>
+</div>
+
+<div class="section-title">Мои обращения</div>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Тема</th><th>Статус</th><th>Обновлён</th><th></th></tr></thead>
+      <tbody>
+        {% for t in tickets %}
+        <tr>
+          <td>#{{ t.id }}</td>
+          <td>{{ t.subject }}</td>
+          <td>
+            {% if t.status == 'open' %}<span class="badge badge-warning">Открыт</span>
+            {% else %}<span class="badge badge-dim">Закрыт</span>{% endif %}
+          </td>
+          <td>{{ t.updated_at[:16].replace('T', ' ') }}</td>
+          <td><a class="btn btn-outline btn-sm" href="/dashboard/support/{{ t.id }}">Открыть</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="muted center">Обращений пока нет</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

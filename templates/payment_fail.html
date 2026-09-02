@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="auth-card glass center">
+  <div style="font-size:3rem;">😔</div>
+  <h2 style="margin:8px 0;">Платёж не завершён</h2>
+  <p class="muted mb-2">Что-то пошло не так, или вы отменили оплату. Попробуйте ещё раз.</p>
+  {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+  <div class="actions" style="justify-content:center;">
+    <a href="/" class="btn btn-primary">К тарифам</a>
+    <a href="/dashboard/orders" class="btn btn-outline">Мои заказы</a>
+  </div>
+</div>
+{% endblock %}

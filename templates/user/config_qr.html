@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-title">Подключение — {{ conn.name }}</div>
+<div class="page-sub">{{ conn.protocol }} · {{ chunks|length }} QR-фрагмента</div>
+
+{% if chunks %}
+<div class="section-title">Отсканируйте фрагменты по порядку (Amnezia VPN)</div>
+<div class="qr-seq">
+  {% for chunk in chunks %}
+  <div class="qr-frame card">
+    <div class="qr-img">
+      <img src="/orders/{{ order_id }}/config/{{ idx }}/qr/{{ loop.index0 }}" alt="QR {{ loop.index }}">
+    </div>
+    <div class="qr-num">Фрагмент {{ loop.index }} из {{ chunks|length }}</div>
+  </div>
+  {% endfor %}
+</div>
+<div class="alert alert-info mt-2">В приложении Amnezia выберите «Сканировать QR» и последовательно просканируйте все фрагменты.</div>
+{% else %}
+<div class="alert alert-warning mt-2">Для этого протокола QR недоступен — используйте копирование конфига или vpn-ссылку.</div>
+{% endif %}
+
+{% if vpn_link %}
+<div class="section-title">Ссылка на подключение</div>
+<div class="config-block" id="vpnlink">{{ vpn_link }}</div>
+<div class="actions mt-1">
+  <button class="btn btn-primary btn-sm" onclick="copyText('vpnlink', 'Скопировано!')">Копировать ссылку</button>
+</div>
+{% endif %}
+
+<div class="section-title">Конфигурация</div>
+<div class="config-block" id="cfg">{{ conn.config }}</div>
+<div class="actions mt-1">
+  <button class="btn btn-outline btn-sm" onclick="copyText('cfg', 'Скопировано!')">Копировать конфиг</button>
+  <a class="btn btn-outline btn-sm" href="/orders/{{ order_id }}/config/{{ idx }}/download">Скачать .conf</a>
+  <a class="btn btn-ghost btn-sm" href="/dashboard">← Назад</a>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function copyText(id, okMsg) {
+  var text = document.getElementById(id).innerText;
+  navigator.clipboard.writeText(text).then(function(){
+    alert(okMsg);
+  });
+}
+</script>
+{% endblock %}

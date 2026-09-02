@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-title">Настройки</div>
+<div class="page-sub">Платежи, подключение к панели, тестовый доступ и оформление.</div>
+
+<div class="card mb-2">
+  <div class="card-title">Подключение к Amnezia Panel</div>
+  <form method="post" action="/admin/settings/save">
+    <div class="grid grid-4">
+      <div class="form-group" style="grid-column: span 2;">
+        <label>URL панели</label>
+        <input class="form-control" name="panel_url" value="{{ settings.get('panel_url', '') }}" placeholder="http://127.0.0.1:5000">
+      </div>
+      <div class="form-group" style="grid-column: span 2;">
+        <label>API-токен панели (Bearer)</label>
+        <input class="form-control" name="panel_token" value="{{ settings.get('panel_token', '') }}" placeholder="awp_...">
+      </div>
+    </div>
+    <div class="card-sub muted mb-1">Токен выпускается в панели: Настройки → API-токены. Должен иметь права администратора (роль admin, которая выпустила токен).</div>
+    <button class="btn btn-primary" type="submit">Сохранить</button>
+  </form>
+</div>
+
+<div class="card mb-2">
+  <div class="card-title">Platega (онлайн-оплата)</div>
+  <form method="post" action="/admin/settings/save">
+    <div class="grid grid-4">
+      <div class="form-group"><label>X-MerchantId</label><input class="form-control" name="platega_merchant_id" value="{{ settings.get('platega_merchant_id', '') }}"></div>
+      <div class="form-group"><label>X-Secret (API ключ)</label><input class="form-control" name="platega_secret" value="{{ settings.get('platega_secret', '') }}"></div>
+      <div class="form-group"><label>Публичный URL магазина</label><input class="form-control" name="shop_public_url" value="{{ settings.get('shop_public_url', '') }}" placeholder="https://vpn.example.com"></div>
+    </div>
+    <div class="card-sub muted mb-1">Публичный URL используется для редиректа после оплаты и должен быть доступен Platega по HTTPS.</div>
+    <button class="btn btn-primary" type="submit">Сохранить</button>
+  </form>
+</div>
+
+<div class="card mb-2">
+  <div class="card-title">Тестовая подписка</div>
+  <form method="post" action="/admin/settings/save">
+    <div class="form-group" style="max-width:200px;">
+      <label>Длительность тестовой подписки, дней</label>
+      <input class="form-control" type="number" min="1" name="test_subscription_days" value="{{ settings.get('test_subscription_days', '3') }}">
+    </div>
+    <div class="card-sub muted mb-1">Выдаётся один раз каждому пользователю.</div>
+    <button class="btn btn-primary" type="submit">Сохранить</button>
+  </form>
+</div>
+
+<div class="card mb-2">
+  <div class="card-title">Реферальная программа</div>
+  <form method="post" action="/admin/settings/save">
+    <div class="form-group mb-1">
+      <label><input type="checkbox" name="referral_enabled" value="True" {% if settings.get('referral_enabled') != 'False' %}checked{% endif %}> Включить реферальную программу</label>
+    </div>
+    <div class="grid grid-4">
+      <div class="form-group">
+        <label>Порог первого депозита, ₽</label>
+        <input class="form-control" name="referral_threshold" value="{{ settings.get('referral_threshold', '100') }}">
+      </div>
+      <div class="form-group">
+        <label>Бонус рефералу, ₽</label>
+        <input class="form-control" name="referral_bonus_referee" value="{{ settings.get('referral_bonus_referee', '100') }}">
+      </div>
+      <div class="form-group">
+        <label>Вознаграждение пригласившему, ₽</label>
+        <input class="form-control" name="referral_bonus_referrer" value="{{ settings.get('referral_bonus_referrer', '100') }}">
+      </div>
+      <div class="form-group">
+        <label>Комиссия за повторные пополнения, %</label>
+        <input class="form-control" name="referral_commission_percent" value="{{ settings.get('referral_commission_percent', '25') }}">
+      </div>
+    </div>
+    <div class="card-sub muted mb-1">Бонусы начисляются на <strong>скидочный баланс</strong> пользователей и списываются при оплате подписки. Выключение программы не отменяет уже начисленные бонусы. Установите 0, чтобы отключить конкретный бонус/комиссию.</div>
+    <button class="btn btn-primary" type="submit">Сохранить</button>
+  </form>
+</div>
+
+<div class="card mb-2">
+  <div class="card-title">Telegram-бот</div>
+  <form method="post" action="/admin/settings/save">
+    <div class="grid grid-4">
+      <div class="form-group" style="grid-column: span 4;">
+        <label>Токен бота (BotFather)</label>
+        <input class="form-control" name="telegram_bot_token" value="{{ settings.get('telegram_bot_token', '') }}" placeholder="123456:ABC-...">
+      </div>
+    </div>
+    <div class="card-sub muted mb-1">Получите токен у <strong>@BotFather</strong>. Для работы бота перезапустите его (команда <code>python bot.py</code>).</div>
+    <button class="btn btn-primary" type="submit">Сохранить</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card-title">Оформление</div>
+  <form method="post" action="/admin/settings/save">
+    <div class="grid grid-4">
+      <div class="form-group"><label>Название</label><input class="form-control" name="brand_name" value="{{ settings.get('brand_name', '') }}"></div>
+      <div class="form-group"><label>Эмодзи</label><input class="form-control" name="brand_emoji" value="{{ settings.get('brand_emoji', '🛡️') }}"></div>
+      <div class="form-group" style="grid-column: span 2;"><label>Подзаголовок</label><input class="form-control" name="brand_subtitle" value="{{ settings.get('brand_subtitle', '') }}"></div>
+    </div>
+    <button class="btn btn-primary" type="submit">Сохранить</button>
+  </form>
+</div>
+{% endblock %}

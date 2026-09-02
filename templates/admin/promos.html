@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-title">Промокоды</div>
+<div class="page-sub">Создание и управление скидочными кодами.</div>
+
+<div class="card mb-2">
+  <div class="card-title">Новый промокод</div>
+  <form method="post" action="/admin/promos/add">
+    <div class="grid grid-4">
+      <div class="form-group"><label>Код</label><input class="form-control" name="code" required placeholder="SUMMER2026" style="text-transform:uppercase;"></div>
+      <div class="form-group"><label>Скидка, %</label><input class="form-control" type="number" min="0" max="100" name="discount_percent" value="0"></div>
+      <div class="form-group"><label>Скидка, ₽ (фикс.)</label><input class="form-control" type="number" step="0.01" min="0" name="discount_amount_rub" value="0"></div>
+      <div class="form-group"><label>Макс. использований (0 = ∞)</label><input class="form-control" type="number" name="max_uses" value="0"></div>
+      <div class="form-group"><label>Действует с (YYYY-MM-DD)</label><input class="form-control" type="date" name="valid_from"></div>
+      <div class="form-group"><label>Действует до (YYYY-MM-DD)</label><input class="form-control" type="date" name="valid_until"></div>
+    </div>
+    <button class="btn btn-primary" type="submit">Создать</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Код</th><th>Скидка</th><th>Использован</th><th>Лимит</th><th>Действует</th><th>Активен</th><th>Действия</th></tr></thead>
+      <tbody>
+        {% for p in promos %}
+        <tr>
+          <td><strong>{{ p.code }}</strong></td>
+          <td>
+            {% if p.discount_percent %}{{ p.discount_percent }}%{% elif p.discount_amount_rub %}{{ "%.2f"|format(p.discount_amount_rub) }} ₽{% else %}—{% endif %}
+          </td>
+          <td>{{ p.used_count }}</td>
+          <td>{% if p.max_uses %}{{ p.max_uses }}{% else %}∞{% endif %}</td>
+          <td>
+            {% if p.valid_from %}{{ p.valid_from[:10] }}{% endif %}
+            {% if p.valid_until %} → {{ p.valid_until[:10] }}{% endif %}
+          </td>
+          <td>
+            {% if p.is_active %}<span class="badge badge-success">Да</span>{% else %}<span class="badge badge-dim">Нет</span>{% endif %}
+          </td>
+          <td>
+            <div class="actions">
+              <form method="post" action="/admin/promos/{{ p.id }}/toggle">
+                <button class="btn btn-outline btn-sm" type="submit">{% if p.is_active %}Отключить{% else %}Включить{% endif %}</button>
+              </form>
+              <form method="post" action="/admin/promos/{{ p.id }}/delete" onsubmit="return confirm('Удалить промокод?');">
+                <button class="btn btn-danger btn-sm" type="submit">✕</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="muted center">Промокодов пока нет</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

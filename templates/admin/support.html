@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-title">Поддержка — тикеты</div>
+<div class="page-sub">Все обращения пользователей.</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Тема</th><th>Пользователь</th><th>Статус</th><th>Обновлён</th><th></th></tr></thead>
+      <tbody>
+        {% for t in tickets %}
+        <tr>
+          <td>#{{ t.id }}</td>
+          <td>{{ t.subject }}</td>
+          <td>{{ t.username or t.user_id[:8] }}</td>
+          <td>
+            {% if t.status == 'open' %}<span class="badge badge-warning">Открыт</span>
+            {% else %}<span class="badge badge-dim">Закрыт</span>{% endif %}
+          </td>
+          <td>{{ t.updated_at[:16].replace('T', ' ') }}</td>
+          <td><a class="btn btn-outline btn-sm" href="/admin/support/{{ t.id }}">Открыть</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="muted center">Тикетов нет</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-title">Личный кабинет</div>
+<div class="page-sub">Добро пожаловать, {{ user.username }}!</div>
+
+{% if not used_trial %}
+<div class="alert alert-warning mt-2" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+  <div><strong>Тестовый доступ</strong> — {{ trial_days }} дн. бесплатно, один раз. Обязательно нажмите, чтобы проверить работу сервиса.</div>
+  <form method="post" action="/payment/trial">
+    <button class="btn btn-success" type="submit">Активировать тестовую</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="grid grid-4 mt-2">
+  <div class="card stat">
+    <div class="stat-label">Статус</div>
+    <div class="stat-value">
+      {% if subscription %}
+        <span class="badge badge-success">Активна</span>
+      {% else %}
+        <span class="badge badge-dim">Нет подписки</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card stat">
+    <div class="stat-label">Истекает</div>
+    <div class="stat-value">{% if subscription and subscription.expires_at %}{{ subscription.expires_at[:10] }}{% else %}—{% endif %}</div>
+  </div>
+  <div class="card stat">
+    <div class="stat-label">Конфигурации</div>
+    <div class="stat-value">{{ connections|length }}</div>
+  </div>
+  <div class="card stat">
+    <div class="stat-label">Баланс</div>
+    <div class="stat-value" style="color:var(--success,#36b37e);">{{ "%.2f"|format(balance) }} ₽</div>
+  </div>
+</div>
+
+{% if not subscription %}
+<div class="alert alert-info mt-2 glass">У вас нет активной подписки. <a href="/" style="color:var(--primary-2);">Выберите тариф</a> или активируйте тестовую.</div>
+{% endif %}
+
+{% if connections %}
+<div class="section-title">Ваши конфигурации ({{ connections|length }})</div>
+<div class="grid">
+  {% for c in connections %}
+  <div class="card">
+    <div class="card-title" style="font-size:1.05rem;">{{ c.name }}</div>
+    <div class="card-sub mb-1">
+      {{ c.protocol }}
+      {% if c.vpn_link %}<span class="badge badge-info">Ссылка доступна</span>{% endif %}
+    </div>
+    <div class="config-block" id="cfg-{{ loop.index }}">{{ c.config }}</div>
+    <div class="actions mt-1">
+      <button class="btn btn-outline btn-sm" onclick="copyCfg('cfg-{{ loop.index }}', this)">Копировать</button>
+      <a class="btn btn-outline btn-sm" href="/orders/{{ subscription.id }}/config/{{ loop.index0 }}/download">.conf</a>
+      {% if c.vpn_link %}
+      <button class="btn btn-outline btn-sm" data-link="{{ c.vpn_link }}" onclick="copyLink(this)">vpn-ссылка</button>
+      {% endif %}
+      {% if c.vpn_qr_chunks and c.vpn_qr_chunks|length %}
+      <a class="btn btn-primary btn-sm" href="/orders/{{ subscription.id }}/config/{{ loop.index0 }}/qr">QR-код</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if referral_enabled and referral_code %}
+<div class="section-title">Реферальная программа</div>
+<div class="card glass">
+  <div class="card-sub mb-1">Приглашайте друзей и получайте бонусы на баланс. За каждого первого клиента — вознаграждение, а за каждое последующее пополнение — процент комиссии.</div>
+  <div class="actions" style="flex-wrap:wrap; gap:8px; align-items:center;">
+    <input class="input" readonly value="{{ referral_link }}" id="reflink" style="flex:1; min-width:220px;">
+    <button class="btn btn-primary btn-sm" onclick="copyTextV2('reflink','Ссылка скопирована')">Копировать ссылку</button>
+  </div>
+  <div class="card-sub mt-1">Ваш код: <strong>{{ referral_code }}</strong> · Приглашено: <strong>{{ referred_paid_count }}</strong></div>
+</div>
+{% endif %}
+
+<div class="section-title">Навигация</div>
+<div class="grid grid-3">
+  <a class="card" href="/dashboard/balance">
+    <div style="font-size:2rem;">💰</div>
+    <div class="card-title">Баланс</div>
+    <div class="card-sub">Бонусы и скидочный баланс</div>
+  </a>
+  <a class="card" href="/dashboard/orders">
+    <div style="font-size:2rem;">🧾</div>
+    <div class="card-title">Заказы</div>
+    <div class="card-sub">История платежей и подписок</div>
+  </a>
+  <a class="card" href="/dashboard/profile">
+    <div style="font-size:2rem;">👤</div>
+    <div class="card-title">Профиль</div>
+    <div class="card-sub">Личные данные, пароль</div>
+  </a>
+  <a class="card" href="/dashboard/support">
+    <div style="font-size:2rem;">🎧</div>
+    <div class="card-title">Поддержка</div>
+    <div class="card-sub">Обращения и тикеты</div>
+  </a>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function copyCfg(id, btn) {
+  var text = document.getElementById(id).innerText;
+  navigator.clipboard.writeText(text).then(function() {
+    var old = btn.textContent; btn.textContent = 'Скопировано!';
+    setTimeout(function(){ btn.textContent = old; }, 1500);
+  });
+}
+function copyLink(btn) {
+  var url = btn.getAttribute('data-link');
+  navigator.clipboard.writeText(url).then(function() {
+    var old = btn.textContent; btn.textContent = 'Скопировано!';
+    setTimeout(function(){ btn.textContent = old; }, 1500);
+  });
+}
+function copyTextV2(id, msg) {
+  var text = document.getElementById(id).value || document.getElementById(id).innerText;
+  navigator.clipboard.writeText(text).then(function(){ alert(msg); });
+}
+</script>
+{% endblock %}

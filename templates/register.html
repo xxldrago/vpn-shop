@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="auth-card glass">
+  <h2 style="margin-top:0;">Регистрация</h2>
+  <p class="muted mb-2">Создайте аккаунт для покупки подписки.</p>
+  {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+  <form method="post" action="/register">
+    <div class="form-group">
+      <label>Логин (латиница, цифры, _ . -)</label>
+      <input class="form-control" name="username" required autocomplete="username">
+    </div>
+    <div class="form-group">
+      <label>Email (необязательно)</label>
+      <input class="form-control" type="email" name="email">
+    </div>
+    <div class="form-group">
+      <label>Пароль (мин. 6 символов)</label>
+      <input class="form-control" type="password" name="password" required autocomplete="new-password">
+    </div>
+    <div class="form-group">
+      <label>Повторите пароль</label>
+      <input class="form-control" type="password" name="password2" required autocomplete="new-password">
+    </div>
+    <button class="btn btn-primary btn-block" type="submit">Зарегистрироваться</button>
+  </form>
+  <div class="center muted mt-2">
+    Уже есть аккаунт? <a href="/login" style="color:var(--primary-2);">Войти</a>
+  </div>
+</div>
+{% endblock %}

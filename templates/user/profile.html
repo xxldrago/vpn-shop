@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-title">Профиль</div>
+<div class="page-sub">Редактирование личных данных и пароля.</div>
+
+<div class="card" style="max-width:600px;">
+  {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+  <form method="post" action="/dashboard/profile/save">
+    <div class="form-group">
+      <label>Логин (изменить нельзя)</label>
+      <input class="form-control" value="{{ user.username }}" disabled>
+    </div>
+    <div class="form-group">
+      <label>Email</label>
+      <input class="form-control" type="email" name="email" value="{{ user.email or '' }}">
+    </div>
+    <div class="form-group">
+      <label>Telegram ID</label>
+      <input class="form-control" name="telegram_id" value="{{ user.telegram_id or '' }}" placeholder="Например 123456789">
+    </div>
+    <hr style="border-color:var(--glass-border); margin:20px 0;">
+    <div class="card-sub mb-2">Смена пароля</div>
+    <div class="form-group">
+      <label>Текущий пароль</label>
+      <input class="form-control" type="password" name="current_password">
+    </div>
+    <div class="form-group">
+      <label>Новый пароль</label>
+      <input class="form-control" type="password" name="new_password">
+    </div>
+    <button class="btn btn-primary" type="submit">Сохранить</button>
+  </form>
+</div>
+{% endblock %}

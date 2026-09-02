@@ -1,0 +1,9 @@
+venv
+__pycache__
+*.pyc
+.git
+.gitignore
+data
+*.db
+deploy
+mock_panel.py

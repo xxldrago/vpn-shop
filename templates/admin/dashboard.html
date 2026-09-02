@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-title">Панель администратора</div>
+<div class="page-sub">Статистика и управление системой.</div>
+
+<div class="grid grid-4">
+  <div class="card stat">
+    <div class="stat-label">Выручка всего</div>
+    <div class="stat-value">{{ "%.0f"|format(total_revenue) }} ₽</div>
+  </div>
+  <div class="card stat">
+    <div class="stat-label">Сегодня</div>
+    <div class="stat-value">{{ "%.0f"|format(today_revenue) }} ₽</div>
+  </div>
+  <div class="card stat">
+    <div class="stat-label">Активных подписок</div>
+    <div class="stat-value">{{ active_subs }}</div>
+  </div>
+  <div class="card stat">
+    <div class="stat-label">Открытых тикетов</div>
+    <div class="stat-value">{{ open_tickets }}</div>
+  </div>
+</div>
+
+<div class="grid grid-4 mt-2">
+  <div class="card stat">
+    <div class="stat-label">Оплачено заказов</div>
+    <div class="stat-value">{{ paid_orders }}</div>
+  </div>
+  <div class="card stat">
+    <div class="stat-label">Ожидают оплаты</div>
+    <div class="stat-value">{{ pending_orders }}</div>
+  </div>
+</div>
+
+<div class="section-title">Навигация</div>
+<div class="grid grid-3">
+  <a class="card" href="/admin/plans"><div style="font-size:2rem;">💠</div><div class="card-title">Тарифы</div><div class="card-sub">Управление планами</div></a>
+  <a class="card" href="/admin/promos"><div style="font-size:2rem;">🏷️</div><div class="card-title">Промокоды</div><div class="card-sub">Скидки и акции</div></a>
+  <a class="card" href="/admin/orders"><div style="font-size:2rem;">🧾</div><div class="card-title">Заказы</div><div class="card-sub">Все заказы</div></a>
+  <a class="card" href="/admin/settings"><div style="font-size:2rem;">⚙️</div><div class="card-title">Настройки</div><div class="card-sub">Platega, тестовый доступ</div></a>
+  <a class="card" href="/admin/support"><div style="font-size:2rem;">🎧</div><div class="card-title">Поддержка</div><div class="card-sub">Тикеты пользователей</div></a>
+  <a class="card" href="/"><div style="font-size:2rem;">🌍</div><div class="card-title">Сайт</div><div class="card-sub">Открыть магазин</div></a>
+</div>
+
+{% if expiring_soon %}
+<div class="section-title">Истекают в ближайшие 3 дня</div>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Заказ</th><th>Пользователь</th><th>Истекает</th></tr></thead>
+      <tbody>
+        {% for o in expiring_soon %}
+        <tr>
+          <td>#{{ o.id[:8] }}</td>
+          <td>{{ o.user_id[:8] }}...</td>
+          <td>{{ o.expires_at[:10] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if servers %}
+<div class="section-title">Серверы панели ({{ servers|length }})</div>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Название</th><th>Хост</th><th>Протоколы</th></tr></thead>
+      <tbody>
+        {% for s in servers %}
+        <tr>
+          <td>{{ s.server_id }}</td>
+          <td>{{ s.server.name }}</td>
+          <td>{{ s.server.host }}</td>
+          <td>
+            {% for p in s.protocols %}
+              <span class="badge badge-info">{{ p.display_name }}</span>
+            {% else %}
+              <span class="badge badge-dim">нет</span>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-warning mt-2">Не удалось получить список серверов из панели. Проверьте настройки подключения.</div>
+{% endif %}
+{% endblock %}

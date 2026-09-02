@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-title">Заказы</div>
+<div class="page-sub">Все заказы в системе.</div>
+
+<div class="actions mb-2">
+  <a class="btn btn-outline btn-sm {% if not status %}btn-primary{% endif %}" href="/admin/orders">Все</a>
+  <a class="btn btn-outline btn-sm {% if status == 'paid' %}btn-primary{% endif %}" href="/admin/orders?status=paid">Оплачено</a>
+  <a class="btn btn-outline btn-sm {% if status == 'pending' %}btn-primary{% endif %}" href="/admin/orders?status=pending">Ожидает</a>
+  <a class="btn btn-outline btn-sm {% if status == 'expired' %}btn-primary{% endif %}" href="/admin/orders?status=expired">Истёкшие</a>
+  <a class="btn btn-outline btn-sm {% if status == 'cancelled' %}btn-primary{% endif %}" href="/admin/orders?status=cancelled">Отменённые</a>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>№</th><th>Пользователь</th><th>Тариф</th><th>Сумма</th><th>Статус</th><th>Оплачен</th><th>Истекает</th></tr></thead>
+      <tbody>
+        {% for o in orders %}
+        <tr>
+          <td>#{{ o.id[:8] }}</td>
+          <td>{{ o.username or o.user_id[:8] }}</td>
+          <td>
+            {{ o.plan_name or 'Тестовая' }}
+            {% if o.is_trial %}<span class="badge badge-info">тест</span>{% endif %}
+          </td>
+          <td>{% if o.amount_rub %}{{ "%.2f"|format(o.amount_rub) }} ₽{% else %}—{% endif %}</td>
+          <td>
+            {% if o.status == 'paid' %}<span class="badge badge-success">Оплачено</span>
+            {% elif o.status == 'pending' %}<span class="badge badge-warning">Ожидает</span>
+            {% elif o.status == 'expired' %}<span class="badge badge-dim">Истёк</span>
+            {% elif o.status == 'cancelled' %}<span class="badge badge-danger">Отменён</span>
+            {% else %}<span class="badge badge-dim">{{ o.status }}</span>{% endif %}
+          </td>
+          <td>{% if o.paid_at %}{{ o.paid_at[:16].replace('T', ' ') }}{% else %}—{% endif %}</td>
+          <td>{% if o.expires_at %}{{ o.expires_at[:10] }}{% else %}—{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="muted center">Заказов нет</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

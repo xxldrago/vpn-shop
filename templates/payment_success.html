@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="alert alert-success">✅ Оплата прошла успешно!</div>
+
+{% if not order %}
+<div class="card"><div class="muted">Заказ не найден. Проверьте ссылку.</div></div>
+{% else %}
+<div class="card">
+  <div class="card-title">Подписка активирована</div>
+  <div class="card-sub">Ваш аккаунт готов. Конфигурации со всех серверов доступны в личном кабинете.</div>
+  <div class="actions mt-2">
+    <a href="/dashboard" class="btn btn-primary">Перейти в кабинет</a>
+  </div>
+</div>
+
+{% if connections %}
+<div class="section-title">Ваши конфигурации ({{ connections|length }})</div>
+<div class="grid">
+  {% for c in connections %}
+  <div class="card">
+    <div class="card-title" style="font-size:1.05rem;">{{ c.name }}</div>
+    <div class="card-sub mb-1">{{ c.protocol }} • Сервер #{{ c.server_id }}</div>
+    <div class="config-block" id="cfg-{{ loop.index }}">{{ c.config }}</div>
+    <div class="actions mt-1">
+      <button class="btn btn-outline btn-sm" onclick="copyCfg('cfg-{{ loop.index }}', this)">Копировать</button>
+      <a class="btn btn-outline btn-sm" href="/orders/{{ order.id }}/config/{{ loop.index0 }}/download">Скачать .conf</a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endif %}
+
+{% endblock %}
+{% block scripts %}
+<script>
+function copyCfg(id, btn) {
+  var el = document.getElementById(id);
+  var text = el.innerText;
+  navigator.clipboard.writeText(text).then(function() {
+    var old = btn.textContent; btn.textContent = 'Скопировано!';
+    setTimeout(function(){ btn.textContent = old; }, 1500);
+  });
+}
+</script>
+{% endblock %}

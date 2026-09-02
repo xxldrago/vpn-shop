@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ brand.name }} — {{ brand.subtitle }}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="{{ 'dark' if request.session.get('theme') == 'dark' else 'light' }}">
+<div class="bg-blob bg-blob-1"></div>
+<div class="bg-blob bg-blob-2"></div>
+<div class="bg-blob bg-blob-3"></div>
+
+<nav class="topbar glass">
+  <a class="brand" href="/">
+    <span class="brand-emoji">{{ brand.emoji }}</span>
+    <span class="brand-name">{{ brand.name }}</span>
+  </a>
+  <div class="nav-links">
+    <a href="/">Тарифы</a>
+    {% if user %}
+      <a href="/dashboard">Кабинет</a>
+      {% if user.role == 'admin' %}
+        <a href="/admin">Админ</a>
+      {% elif user.role == 'support' %}
+        <a href="/admin/support">Поддержка</a>
+      {% endif %}
+      <a href="/logout">Выйти ({{ user.username }})</a>
+    {% else %}
+      <a href="/login">Войти</a>
+      <a href="/register" class="btn btn-primary btn-sm">Регистрация</a>
+    {% endif %}
+  </div>
+</nav>
+
+<main class="container">
+  {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+  {% if success %}<div class="alert alert-success">{{ success }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+  <div>{{ brand.emoji }} {{ brand.name }} — {{ brand.subtitle }}</div>
+  <div class="footer-links">
+    <a href="/">Тарифы</a>
+    {% if user %}<a href="/dashboard">Кабинет</a>{% endif %}
+  </div>
+</footer>
+{% block scripts %}{% endblock %}
+</body>
+</html>

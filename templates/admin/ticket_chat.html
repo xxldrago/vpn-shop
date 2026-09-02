@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-title">
+  {{ ticket.subject }}
+  {% if ticket.status == 'open' %}<span class="badge badge-warning">Открыт</span>
+  {% else %}<span class="badge badge-dim">Закрыт</span>{% endif %}
+</div>
+<div class="page-sub">Тикет #{{ ticket.id }} • пользователь: <strong>{{ user.username }}</strong></div>
+
+<div class="card">
+  <div class="chat-list">
+    {% for m in messages %}
+    <div class="chat-msg {% if m.sender_id == user.id %}them{% if m.sender_role == 'user' %} agent{% endif %} {% else %}me{% endif %}">
+      <div class="meta">
+        {% if m.sender_role == 'user' %}Пользователь{% else %}Вы (Поддержка){% endif %} • {{ m.created_at[:16].replace('T', ' ') }}
+      </div>
+      {{ m.message }}
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if ticket.status == 'open' %}
+  <form method="post" action="/admin/support/{{ ticket.id }}/message">
+    <div class="form-group">
+      <textarea class="form-control" name="message" rows="3" placeholder="Ответить..." required></textarea>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" type="submit">Ответить</button>
+      <a class="btn btn-outline" href="/admin/support/{{ ticket.id }}/close">Закрыть тикет</a>
+    </div>
+  </form>
+  {% else %}
+  <div class="actions">
+    <div class="muted">Тикет закрыт.</div>
+    <a class="btn btn-outline btn-sm" href="/admin/support/{{ ticket.id }}/close">Переоткрыть</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

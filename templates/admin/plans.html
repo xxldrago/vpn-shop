@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-title">Тарифы</div>
+<div class="page-sub">Цена в рублях, доступ на указанное количество дней.</div>
+
+<div class="card mb-2">
+  <div class="card-title">Новый тариф</div>
+  <form method="post" action="/admin/plans/add">
+    <div class="grid grid-4">
+      <div class="form-group"><label>Название</label><input class="form-control" name="name" required placeholder="1 месяц"></div>
+      <div class="form-group"><label>Цена, ₽</label><input class="form-control" type="number" step="0.01" min="0" name="price_rub" required></div>
+      <div class="form-group"><label>Дней доступа</label><input class="form-control" type="number" min="1" name="duration_days" required value="30"></div>
+      <div class="form-group"><label>Описание</label><input class="form-control" name="description"></div>
+    </div>
+    <button class="btn btn-primary" type="submit">Добавить</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Название</th><th>Описание</th><th>Цена, ₽</th><th>Дней</th><th>Активен</th><th>Действия</th></tr></thead>
+      <tbody>
+        {% for p in plans %}
+        <tr>
+          <form method="post" action="/admin/plans/{{ p.id }}/update">
+            <td style="min-width:130px;"><input class="form-control" name="name" value="{{ p.name }}" required></td>
+            <td><input class="form-control" name="description" value="{{ p.description or '' }}"></td>
+            <td style="width:110px;"><input class="form-control" type="number" step="0.01" min="0" name="price_rub" value="{{ p.price_rub }}" required></td>
+            <td style="width:90px;"><input class="form-control" type="number" min="1" name="duration_days" value="{{ p.duration_days }}" required></td>
+            <td style="width:60px;"><label class="switch"><input type="checkbox" name="is_active" value="1" {% if p.is_active %}checked{% endif %}><span class="slider"></span></label></td>
+            <td style="width:120px;">
+              <button class="btn btn-outline btn-sm" type="submit">Сохранить</button>
+            </td>
+          </form>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<div class="muted mt-2">Для удаления тарифа, отключите его. <a href="/admin/orders" style="color:var(--primary-2);">Заказы с отключёнными тарифами</a> сохранятся.</div>
+{% endblock %}

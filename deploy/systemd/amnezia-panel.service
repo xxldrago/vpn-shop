@@ -1,0 +1,27 @@
+# Amnezia Web Panel — systemd unit.
+#
+# Assumes the repo is at /opt/Amnezia-Web-Panel with a venv at
+# /opt/Amnezia-Web-Panel/venv. The panel runs on 127.0.0.1:5000.
+#
+# Install:
+#   sudo cp deploy/systemd/amnezia-panel.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now amnezia-panel
+
+[Unit]
+Description=Amnezia Web Panel
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/Amnezia-Web-Panel
+EnvironmentFile=/opt/Amnezia-Web-Panel/.env
+ExecStart=/opt/Amnezia-Web-Panel/venv/bin/python app.py
+Restart=always
+RestartSec=5
+# Optional secure session key:
+# Environment=SECRET_KEY=change-me
+
+[Install]
+WantedBy=multi-user.target

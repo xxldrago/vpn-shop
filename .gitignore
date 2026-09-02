@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+data/
+.env
+deploy/.env
+*.tgz
+*.tar.gz
+.DS_Store
