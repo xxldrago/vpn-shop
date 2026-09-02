@@ -38,7 +38,24 @@
 </div>
 
 {% if not subscription %}
-<div class="alert alert-info mt-2 glass">У вас нет активной подписки. <a href="/" style="color:var(--primary-2);">Выберите тариф</a> или активируйте тестовую.</div>
+<div class="section-title">Доступные тарифы</div>
+<div class="grid grid-3">
+  {% for plan in plans %}
+  <div class="card">
+    <div class="card-title">{{ plan.name }}</div>
+    <div class="card-sub">{{ plan.description }}</div>
+    <div class="plan-price">{{ "%.0f"|format(plan.price_rub) }} <small>₽</small></div>
+    <div class="plan-days">Доступ на {{ plan.duration_days }} дн.</div>
+    <form method="post" action="/orders/create" class="mt-2">
+      <input type="hidden" name="plan_id" value="{{ plan.id }}">
+      <div class="form-group" style="margin-bottom:8px;">
+        <input class="form-control" name="promo" placeholder="Промокод (необязательно)">
+      </div>
+      <button class="btn btn-primary btn-block" type="submit">Оплатить</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
 {% endif %}
 
 {% if connections %}
@@ -78,30 +95,6 @@
   <div class="card-sub mt-1">Ваш код: <strong>{{ referral_code }}</strong> · Приглашено: <strong>{{ referred_paid_count }}</strong></div>
 </div>
 {% endif %}
-
-<div class="section-title">Навигация</div>
-<div class="grid grid-3">
-  <a class="card" href="/dashboard/balance">
-    <div style="font-size:2rem;">💰</div>
-    <div class="card-title">Баланс</div>
-    <div class="card-sub">Бонусы и скидочный баланс</div>
-  </a>
-  <a class="card" href="/dashboard/orders">
-    <div style="font-size:2rem;">🧾</div>
-    <div class="card-title">Заказы</div>
-    <div class="card-sub">История платежей и подписок</div>
-  </a>
-  <a class="card" href="/dashboard/profile">
-    <div style="font-size:2rem;">👤</div>
-    <div class="card-title">Профиль</div>
-    <div class="card-sub">Личные данные, пароль</div>
-  </a>
-  <a class="card" href="/dashboard/support">
-    <div style="font-size:2rem;">🎧</div>
-    <div class="card-title">Поддержка</div>
-    <div class="card-sub">Обращения и тикеты</div>
-  </a>
-</div>
 {% endblock %}
 {% block scripts %}
 <script>

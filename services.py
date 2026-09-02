@@ -29,6 +29,12 @@ def get_panel_client():
 
 
 def get_platega_client():
+    if get_setting_bool("platega_test_mode", False):
+        return PlategaClient(
+            database.get_setting("platega_test_merchant_id", ""),
+            database.get_setting("platega_test_secret", ""),
+            base_url=database.get_setting("platega_test_base_url", "https://sandbox.platega.io"),
+        )
     return PlategaClient(
         database.get_setting("platega_merchant_id", ""),
         database.get_setting("platega_secret", ""),

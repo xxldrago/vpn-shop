@@ -67,10 +67,7 @@ def get_panel_client():
 
 
 def get_platega_client():
-    return PlategaClient(
-        database.get_setting("platega_merchant_id", ""),
-        database.get_setting("platega_secret", ""),
-    )
+    return services.get_platega_client()
 
 
 def get_current_user(request: Request) -> Optional[dict]:
@@ -263,15 +260,9 @@ async def provision_connections(user_id: str, conn_name_prefix: str):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    conn = database.get_db()
-    try:
-        plans = [dict(r) for r in conn.execute(
-            "SELECT * FROM plans WHERE is_active = 1 ORDER BY sort_order, id"
-        ).fetchall()]
-    finally:
-        conn.close()
-    trial_days = database.get_setting("test_subscription_days", "3")
-    return render(request, "index.html", plans=plans, trial_days=trial_days)
+    if get_current_user(request):
+        return RedirectResponse(url="/dashboard", status_code=303)
+    return render(request, "index.html")
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -296,7 +287,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
         "telegram_id": user["telegram_id"],
         "role": user["role"],
     }
-    redirect_to = request.query_params.get("next", "/")
+    redirect_to = request.query_params.get("next", "/dashboard")
     return RedirectResponse(url=redirect_to, status_code=303)
 
 
@@ -366,7 +357,7 @@ async def register(
         "id": new_id, "username": username, "email": email,
         "telegram_id": "", "role": "user",
     }
-    resp = RedirectResponse(url="/", status_code=303)
+    resp = RedirectResponse(url="/dashboard", status_code=303)
     resp.delete_cookie("shop_ref")
     return resp
 
@@ -522,9 +513,16 @@ async def ensure_panel_user(user: dict) -> dict:
 async def platega_callback(request: Request):
     merchant_id = request.headers.get("X-MerchantId")
     secret = request.headers.get("X-Secret")
+    # Accept both production and test credentials so callbacks work in either mode
     expected_mid = database.get_setting("platega_merchant_id", "")
     expected_secret = database.get_setting("platega_secret", "")
-    if merchant_id != expected_mid or secret != expected_secret:
+    test_mid = database.get_setting("platega_test_merchant_id", "")
+    test_secret = database.get_setting("platega_test_secret", "")
+    valid = (
+        (merchant_id == expected_mid and secret == expected_secret)
+        or (test_mid and test_secret and merchant_id == test_mid and secret == test_secret)
+    )
+    if not valid:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
 
     body = await request.json()
@@ -664,6 +662,9 @@ async def dashboard(request: Request):
             "SELECT COUNT(*) AS c FROM app_users WHERE referrer_id = ? AND referred_paid = 1",
             (user["id"],),
         ).fetchone()["c"]
+        plans = [dict(r) for r in conn.execute(
+            "SELECT * FROM plans WHERE is_active = 1 ORDER BY sort_order, id"
+        ).fetchall()]
     finally:
         conn.close()
 
@@ -679,7 +680,7 @@ async def dashboard(request: Request):
     shop_url = database.get_setting("shop_public_url", "http://127.0.0.1:8080").rstrip("/")
     return render(
         request, "user/dashboard.html",
-        subscription=subscription, orders=orders, connections=connections,
+        subscription=subscription, orders=orders, connections=connections, plans=plans,
         used_trial=used_trial, trial_days=trial_days,
         balance=float(app_user.get("balance") or 0),
         referral_code=app_user.get("referral_code") or "",
@@ -1078,17 +1079,21 @@ async def admin_settings_save(request: Request):
     form = await request.form()
     immutable_keys = {"brand_name", "brand_emoji", "brand_subtitle", "panel_url", "panel_token",
                       "platega_merchant_id", "platega_secret", "shop_public_url", "test_subscription_days",
+                      "platega_test_mode", "platega_test_merchant_id", "platega_test_secret",
+                      "platega_test_base_url",
                       "referral_enabled", "referral_threshold", "referral_bonus_referee",
                       "referral_bonus_referrer", "referral_commission_percent",
                       "telegram_bot_token"}
     conn = database.get_db()
     try:
-        # Handle the referral_enabled checkbox when unchecked (no value sent)
-        if "referral_enabled" not in form:
-            conn.execute(
-                "INSERT INTO shop_settings (key, value) VALUES ('referral_enabled', 'False')"
-                " ON CONFLICT(key) DO UPDATE SET value = 'False'"
-            )
+        # Handle checkboxes when unchecked (no value sent)
+        for cb in ("referral_enabled", "platega_test_mode"):
+            if cb not in form:
+                conn.execute(
+                    "INSERT INTO shop_settings (key, value) VALUES (?, 'False')"
+                    " ON CONFLICT(key) DO UPDATE SET value = 'False'",
+                    (cb,),
+                )
         for key, value in form.items():
             if key in immutable_keys:
                 conn.execute(

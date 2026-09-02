@@ -10,10 +10,10 @@ class PlategaClientError(Exception):
 class PlategaClient:
     """Client for the Platega.io payment API."""
 
-    def __init__(self, merchant_id: str, secret: str):
+    def __init__(self, merchant_id: str, secret: str, base_url: str = PLATEGA_BASE_URL):
         self.merchant_id = merchant_id
         self.secret = secret
-        self.base_url = PLATEGA_BASE_URL
+        self.base_url = base_url or PLATEGA_BASE_URL
 
     def _headers(self) -> dict:
         return {

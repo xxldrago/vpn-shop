@@ -17,9 +17,12 @@
     <span class="brand-name">{{ brand.name }}</span>
   </a>
   <div class="nav-links">
-    <a href="/">Тарифы</a>
     {% if user %}
       <a href="/dashboard">Кабинет</a>
+      <a href="/dashboard/balance">Баланс</a>
+      <a href="/dashboard/orders">Заказы</a>
+      <a href="/dashboard/profile">Профиль</a>
+      <a href="/dashboard/support">Поддержка</a>
       {% if user.role == 'admin' %}
         <a href="/admin">Админ</a>
       {% elif user.role == 'support' %}
@@ -42,7 +45,6 @@
 <footer class="footer">
   <div>{{ brand.emoji }} {{ brand.name }} — {{ brand.subtitle }}</div>
   <div class="footer-links">
-    <a href="/">Тарифы</a>
     {% if user %}<a href="/dashboard">Кабинет</a>{% endif %}
   </div>
 </footer>

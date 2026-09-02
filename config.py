@@ -12,6 +12,11 @@ DEFAULT_SETTINGS = {
     "panel_token": os.environ.get("PANEL_TOKEN", ""),
     "platega_merchant_id": os.environ.get("PLATEGA_MERCHANT_ID", ""),
     "platega_secret": os.environ.get("PLATEGA_SECRET", ""),
+    # Platega test mode (uses separate test credentials + URL for sandbox)
+    "platega_test_mode": os.environ.get("PLATEGA_TEST_MODE", "False"),
+    "platega_test_merchant_id": os.environ.get("PLATEGA_TEST_MERCHANT_ID", ""),
+    "platega_test_secret": os.environ.get("PLATEGA_TEST_SECRET", ""),
+    "platega_test_base_url": os.environ.get("PLATEGA_TEST_BASE_URL", "https://sandbox.platega.io"),
     "shop_public_url": os.environ.get("SHOP_PUBLIC_URL", "http://127.0.0.1:8080"),
     "test_subscription_days": 3,
     # Referral system
