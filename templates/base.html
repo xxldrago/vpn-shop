@@ -19,16 +19,28 @@
   <div class="nav-links">
     {% if user %}
       <a href="/dashboard">Кабинет</a>
-      <a href="/balance">Баланс: {{ "%.2f"|format(header_balance(request)) }} ₽</a>
       <a href="/dashboard/orders">Заказы</a>
-      <a href="/dashboard/profile">Профиль</a>
       <a href="/dashboard/support">Поддержка</a>
       {% if user.role == 'admin' %}
         <a href="/admin">Админ</a>
       {% elif user.role == 'support' %}
         <a href="/admin/support">Поддержка</a>
       {% endif %}
-      <a href="/logout">Выйти ({{ user.username }})</a>
+      <div class="nav-user">
+        <a href="/balance" class="balance-badge" title="Пополнить баланс">
+          <span class="balance-icon">💰</span>
+          <span class="balance-amount">{{ "%.2f"|format(header_balance(request)) }} ₽</span>
+        </a>
+        <div class="profile-dropdown">
+          <button class="profile-btn" aria-label="Профиль" tabindex="0">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M12 14c-4.4 0-8 3.6-8 8v1h16v-1c0-4.4-3.6-8-8-8z"/></svg>
+          </button>
+          <div class="dropdown-menu">
+            <a href="/dashboard/profile">Профиль</a>
+            <a href="/logout">Выйти</a>
+          </div>
+        </div>
+      </div>
     {% else %}
       <a href="/login">Войти</a>
       <a href="/register" class="btn btn-primary btn-sm">Регистрация</a>

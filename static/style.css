@@ -96,6 +96,83 @@ a { color: inherit; text-decoration: none; }
 }
 .nav-links a:hover { color: var(--primary); background: rgba(37, 99, 235, 0.07); }
 
+/* Balance badge in header */
+.nav-user { display: flex; align-items: center; gap: 10px; }
+.balance-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #059669, #10b981);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.25);
+  transition: transform .2s, box-shadow .2s, filter .2s;
+  text-decoration: none;
+}
+.balance-badge:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(5, 150, 105, 0.35);
+  filter: brightness(1.05);
+  color: #fff;
+}
+.balance-icon { font-size: 1rem; }
+
+/* Profile dropdown */
+.profile-dropdown { position: relative; }
+.profile-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 12px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  cursor: pointer;
+  color: var(--text);
+  transition: background .2s, border-color .2s, transform .15s;
+}
+.profile-btn:hover { background: var(--glass-solid); border-color: var(--primary); transform: scale(1.05); }
+.profile-btn:focus { outline: none; box-shadow: 0 0 0 3px var(--ring); }
+.profile-btn svg { display: block; }
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 160px;
+  padding: 8px;
+  background: var(--glass-solid);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-hover);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px);
+  transition: opacity .2s, visibility .2s, transform .2s;
+  z-index: 100;
+}
+.dropdown-menu a {
+  display: block;
+  padding: 10px 14px;
+  border-radius: 8px;
+  color: var(--text);
+  font-weight: 500;
+  transition: background .15s;
+}
+.dropdown-menu a:hover { background: rgba(37, 99, 235, 0.08); color: var(--primary); }
+.profile-dropdown:hover .dropdown-menu,
+.profile-dropdown:focus-within .dropdown-menu,
+.profile-dropdown:has(:focus-visible) .dropdown-menu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
 /* Layout */
 .container { position: relative; z-index: 1; max-width: 1180px; margin: 24px auto; padding: 0 16px; }
 .footer {
@@ -164,6 +241,37 @@ a { color: inherit; text-decoration: none; }
 }
 .form-control:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--ring); }
 select.form-control { appearance: auto; }
+
+/* Password input with toggle */
+.password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.password-wrapper .form-control {
+  padding-right: 48px;
+}
+.password-toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  transition: color .2s, background .2s;
+}
+.password-toggle:hover { color: var(--primary); background: rgba(37, 99, 235, 0.08); }
+.password-toggle .eye-closed { display: none; }
+.password-toggle[data-visible="true"] .eye-open { display: none; }
+.password-toggle[data-visible="true"] .eye-closed { display: block; }
 
 /* Alerts */
 .alert { padding: 14px 18px; border-radius: 12px; margin-bottom: 16px; font-size: 0.95rem; }
@@ -285,6 +393,18 @@ input:checked + .slider:before { transform: translateX(24px); }
     text-align: center;
   }
   .nav-links a.btn { text-align: center; }
+
+  .nav-user {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    margin-top: 4px;
+  }
+  .balance-badge { flex: 1; justify-content: center; padding: 10px 14px; font-size: 0.85rem; }
+  .profile-btn { width: 44px; height: 44px; flex-shrink: 0; }
+  .dropdown-menu { right: 0; left: auto; min-width: 150px; }
+}
 
   .container { margin: 16px auto; padding: 0 12px; }
   .footer { flex-direction: column; gap: 8px; text-align: center; }
