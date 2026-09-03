@@ -279,13 +279,15 @@ def apply_promo_price(base_price: float, promo: dict | None) -> float:
 
 # ---------------- Orders ----------------
 
-def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str = "balance") -> dict:
+def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str = "platega", quantity: int = 1) -> dict:
     """Create a pending order with an explicit payment method.
 
     method="balance": pays the FULL price from the personal wallet. Debited at
         order creation (reserved); caller must fulfil (mark paid) promptly.
     method="platega": pays the FULL price via Platega. Balance is NOT touched
         (no automatic partial discount — the wallet is opt-in).
+
+    quantity: number of users/connections (default 1). Price multiplies.
 
     Returns order record dict. Raise services.OrderError (.message) on failure.
     """
@@ -296,7 +298,9 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str =
     if promo_code.strip() and promo_err:
         raise OrderError(promo_err)
 
-    price = round(apply_promo_price(plan["price_rub"], promo), 2)
+    qty = max(1, int(quantity))
+    base_price = round(apply_promo_price(plan["price_rub"], promo), 2)
+    price = round(base_price * qty, 2)
     order_id = str(uuid.uuid4())
 
     method = "platega" if method != "balance" else "balance"
@@ -314,10 +318,10 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str =
     conn = database.get_db()
     try:
         conn.execute(
-            "INSERT INTO orders (id, user_id, plan_id, plan_name, promo_code_id, amount_rub, original_price_rub, balance_used_rub, status, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
+            "INSERT INTO orders (id, user_id, plan_id, plan_name, promo_code_id, amount_rub, original_price_rub, balance_used_rub, status, created_at, quantity)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
             (order_id, user_id, plan_id, plan["name"], promo["id"] if promo else None,
-             payable, price, balance_used, now_iso()),
+             payable, price, balance_used, now_iso(), qty),
         )
         if balance_used > 0:
             conn.execute("UPDATE app_users SET balance = balance - ? WHERE id = ?", (balance_used, user_id))
@@ -325,7 +329,7 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str =
                 "INSERT INTO balance_transactions (user_id, amount, kind, ref_order_id, note, created_at)"
                 " VALUES (?, ?, 'spend', ?, ?, ?)",
                 (user_id, -balance_used, order_id,
-                 f"Оплата тарифа «{plan['name']}» с баланса", now_iso()),
+                 f"Оплата тарифа «{plan['name']}» ×{qty} с баланса", now_iso()),
             )
         conn.commit()
     finally:
@@ -336,6 +340,8 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str =
         "user_id": user_id,
         "plan_id": plan_id,
         "plan_name": plan["name"],
+        "quantity": qty,
+        "base_price": base_price,
         "price": price,
         "payable": payable,
         "balance_used": balance_used,
@@ -343,7 +349,7 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str =
     }
 
 
-def quote_order(plan_id: int, promo_code: str = "") -> dict:
+def quote_order(plan_id: int, promo_code: str = "", quantity: int = 1) -> dict:
     """Price preview for an order without creating it. Returns price after promo."""
     plan = get_plan(plan_id, active_only=True)
     if not plan:
@@ -351,10 +357,15 @@ def quote_order(plan_id: int, promo_code: str = "") -> dict:
     promo, promo_err = resolve_promo(promo_code)
     if promo_code.strip() and promo_err:
         raise OrderError(promo_err)
+    qty = max(1, int(quantity))
+    base_price = round(apply_promo_price(plan["price_rub"], promo), 2)
+    total_price = round(base_price * qty, 2)
     return {
         "plan_id": plan_id,
         "plan_name": plan["name"],
-        "price": round(apply_promo_price(plan["price_rub"], promo), 2),
+        "base_price": base_price,
+        "quantity": qty,
+        "price": total_price,
         "promo_code_id": promo["id"] if promo else None,
     }
 

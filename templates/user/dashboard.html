@@ -34,6 +34,7 @@
   <div class="card stat">
     <div class="stat-label">Баланс</div>
     <div class="stat-value" style="color:var(--success,#36b37e);">{{ "%.2f"|format(balance) }} ₽</div>
+    <a class="btn btn-primary btn-sm mt-1" href="/dashboard/balance">Пополнить баланс</a>
   </div>
 </div>
 
@@ -48,10 +49,15 @@
   <div class="card">
     <div class="card-title">{{ plan.name }}</div>
     <div class="card-sub">{{ plan.description }}</div>
-    <div class="plan-price">{{ "%.0f"|format(plan.price_rub) }} <small>₽</small></div>
+    <div class="plan-price" data-base-price="{{ plan.price_rub }}">{{ "%.0f"|format(plan.price_rub) }} <small>₽</small></div>
     <div class="plan-days">Доступ на {{ plan.duration_days }} дн.</div>
+    <div class="form-group mt-2">
+      <label class="lbl" style="font-size:0.85rem;">Количество пользователей</label>
+      <input type="number" name="quantity" min="1" max="10" value="1" class="input qty-input" data-plan-id="{{ plan.id }}">
+    </div>
     <form method="post" action="/orders/create" class="mt-2">
       <input type="hidden" name="plan_id" value="{{ plan.id }}">
+      <input type="hidden" name="quantity" value="1" class="qty-hidden">
       <div class="form-group" style="margin-bottom:8px;">
         <input class="form-control" name="promo" placeholder="Промокод (необязательно)">
       </div>
@@ -119,5 +125,21 @@ function copyTextV2(id, msg) {
   var text = document.getElementById(id).value || document.getElementById(id).innerText;
   navigator.clipboard.writeText(text).then(function(){ alert(msg); });
 }
+
+// Quantity price calculator
+document.querySelectorAll('.qty-input').forEach(function(input) {
+  input.addEventListener('input', function() {
+    var planId = this.dataset.planId;
+    var qty = Math.max(1, parseInt(this.value) || 1);
+    var card = this.closest('.card');
+    var priceEl = card.querySelector('.plan-price');
+    var basePrice = parseFloat(priceEl.dataset.basePrice) || 0;
+    var total = basePrice * qty;
+    priceEl.innerHTML = total.toFixed(0) + ' <small>₽</small>';
+    // Update hidden input in form
+    var hidden = card.querySelector('.qty-hidden');
+    if (hidden) hidden.value = qty;
+  });
+});
 </script>
 {% endblock %}

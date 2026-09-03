@@ -61,6 +61,7 @@ class PayCB(CallbackData, prefix="pay"):
     method: str
     plan: int
     promo: str = ""
+    quantity: int = 1
 
 
 # ---------------- FSM states ----------------
@@ -71,6 +72,7 @@ class RegisterState(StatesGroup):
 
 
 class BuyState(StatesGroup):
+    quantity = State()
     promo = State()
 
 
@@ -258,9 +260,39 @@ async def on_plan(cb: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     renew = data.get("renew", False)
     await state.update_data(plan_id=plan_id, renew=renew)
-    await state.set_state(BuyState.promo)
+    await state.set_state(BuyState.quantity)
     await cb.message.answer(
         f"✅ <b>{plan['name']}</b> — {money(plan['price_rub'])} / {plan['duration_days']} дн.\n\n"
+        f"Введите количество пользователей (по умолчанию 1):",
+        reply_markup=_markup([InlineKeyboardButton(text="1", callback_data=MenuCB(action="qty_1").pack())]),
+    )
+
+
+@dp.callback_query(MenuCB.filter(F.action.startswith("qty_")))
+async def on_qty_quick(cb: CallbackQuery, state: FSMContext):
+    qty = int(cb.data.split("_")[1])
+    await state.update_data(quantity=qty)
+    await _ask_promo(cb.message, state)
+
+
+@dp.message(F.text, StateFilter(BuyState.quantity))
+async def on_quantity(message: Message, state: FSMContext):
+    text = message.text.strip()
+    if not text.isdigit() or int(text) < 1:
+        await message.answer("Введите число больше 0:")
+        return
+    qty = int(text)
+    await state.update_data(quantity=qty)
+    await _ask_promo(message, state)
+
+
+async def _ask_promo(message, state: FSMContext):
+    data = await state.get_data()
+    plan_id = data.get("plan_id")
+    plan = services.get_plan(plan_id, active_only=True)
+    await state.set_state(BuyState.promo)
+    await message.answer(
+        f"✅ <b>{plan['name']}</b> × {data.get('quantity', 1)}\n\n"
         f"Введите промокод, если есть. Если нет — напишите <b>«нет»</b> или нажмите кнопку.",
         reply_markup=_markup([InlineKeyboardButton(text="Без промокода ⏭", callback_data=MenuCB(action="no_promo").pack())]),
     )
@@ -283,11 +315,12 @@ async def _buy(message, state: FSMContext, promo: str):
     user = resolve_user(message.from_user.id)
     data = await state.get_data()
     plan_id = data.get("plan_id")
+    quantity = data.get("quantity", 1)
     if not user or not plan_id:
         await message.answer("Ошибка оформления. Начните заново.", reply_markup=main_menu())
         return
     try:
-        quote = services.quote_order(plan_id, promo)
+        quote = services.quote_order(plan_id, promo, quantity)
     except services.OrderError as e:
         await message.answer(f"❌ {e}", reply_markup=main_menu())
         return
@@ -296,9 +329,9 @@ async def _buy(message, state: FSMContext, promo: str):
     # No wallet funds -> go straight to Platega
     if balance <= 0:
         try:
-            order = services.create_order(user["id"], plan_id, promo, method="platega")
+            order = services.create_order(user["id"], plan_id, promo, method="platega", quantity=quantity)
             pay_url = await services.create_platega_payment(
-                order["id"], f"Оплата тарифа «{order['plan_name']}»", order["payable"]
+                order["id"], f"Оплата тарифа «{order['plan_name']}» ×{quantity}", order["payable"]
             )
         except services.OrderError as e:
             await message.answer(f"❌ {e}", reply_markup=main_menu())
@@ -306,7 +339,7 @@ async def _buy(message, state: FSMContext, promo: str):
         await state.clear()
         txt = (
             f"💳 <b>Заказ создан</b>\n"
-            f"Тариф: <b>{order['plan_name']}</b>\n"
+            f"Тариф: <b>{order['plan_name']}</b> × {quantity}\n"
             f"Стоимость: {money(order['price'])}\n"
             f"К оплате: <b>{money(order['payable'])}</b>\n\n"
             f"Нажмите Оплатить, чтобы перейти к оплате:"
@@ -322,15 +355,15 @@ async def _buy(message, state: FSMContext, promo: str):
     buttons = [
         [InlineKeyboardButton(
             text=f"💰 Оплатить с баланса ({money(quote['price'])})",
-            callback_data=PayCB(method="balance", plan=quote["plan_id"], promo=promo).pack(),
+            callback_data=PayCB(method="balance", plan=quote["plan_id"], promo=promo, quantity=quantity).pack(),
         )],
         [InlineKeyboardButton(
             text="💳 Оплатить картой (Platega)",
-            callback_data=PayCB(method="platega", plan=quote["plan_id"], promo=promo).pack(),
+            callback_data=PayCB(method="platega", plan=quote["plan_id"], promo=promo, quantity=quantity).pack(),
         )],
     ]
     txt = (
-        f"🛒 <b>{quote['plan_name']}</b> — {money(quote['price'])}\n"
+        f"🛒 <b>{quote['plan_name']}</b> × {quantity} — {money(quote['price'])}\n"
         f"Ваш баланс: <b>{money(balance)}</b>\n\n"
         f"Выберите способ оплаты:"
     )
@@ -349,11 +382,12 @@ async def on_pay_choice(cb: CallbackQuery, state: FSMContext):
     method = choice.method
     plan_id = choice.plan
     promo = choice.promo
+    quantity = choice.quantity
     await state.clear()
 
     if method == "balance":
         try:
-            order = services.create_order(user["id"], plan_id, promo, method="balance")
+            order = services.create_order(user["id"], plan_id, promo, method="balance", quantity=quantity)
         except services.OrderError as e:
             await cb.message.answer(f"❌ {e}", reply_markup=main_menu())
             return
@@ -362,16 +396,16 @@ async def on_pay_choice(cb: CallbackQuery, state: FSMContext):
 
     # platega
     try:
-        order = services.create_order(user["id"], plan_id, promo, method="platega")
+        order = services.create_order(user["id"], plan_id, promo, method="platega", quantity=quantity)
         pay_url = await services.create_platega_payment(
-            order["id"], f"Оплата тарифа «{order['plan_name']}»", order["payable"]
+            order["id"], f"Оплата тарифа «{order['plan_name']}» ×{quantity}", order["payable"]
         )
     except services.OrderError as e:
         await cb.message.answer(f"❌ {e}", reply_markup=main_menu())
         return
     txt = (
         f"💳 <b>Заказ создан</b>\n"
-        f"Тариф: <b>{order['plan_name']}</b>\n"
+        f"Тариф: <b>{order['plan_name']}</b> × {quantity}\n"
         f"Стоимость: {money(order['price'])}\n"
         f"К оплате: <b>{money(order['payable'])}</b>\n\n"
         f"Нажмите Оплатить, чтобы перейти к оплате:"

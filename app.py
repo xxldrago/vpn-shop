@@ -379,13 +379,14 @@ async def register(
 # ---------------- Orders / Payment ----------------
 
 @app.post("/orders/create")
-async def create_order(request: Request, plan_id: int = Form(...), promo: str = Form(""), method: str = Form("")):
+async def create_order(request: Request, plan_id: int = Form(...), promo: str = Form(""), method: str = Form(""), quantity: int = Form(1)):
     user = require_user(request)
     balance = services.get_balance(user["id"])
+    qty = max(1, int(quantity))
 
     if not method:
         # First step: let the user choose how to pay (unless balance is empty).
-        quote = services.quote_order(plan_id, promo)
+        quote = services.quote_order(plan_id, promo, qty)
         if balance <= 0:
             method = "platega"
         else:
@@ -393,15 +394,16 @@ async def create_order(request: Request, plan_id: int = Form(...), promo: str = 
                 request, "checkout.html",
                 plan_id=plan_id, promo=promo, balance=balance,
                 plan_name=quote["plan_name"], price=quote["price"],
+                quantity=quote["quantity"],
                 pay_via_balance=balance >= quote["price"],
             )
 
     if method == "platega":
         try:
-            order = services.create_order(user["id"], plan_id, promo, method="platega")
+            order = services.create_order(user["id"], plan_id, promo, method="platega", quantity=qty)
             plan_name = order["plan_name"]
             payment_url = await services.create_platega_payment(
-                order["id"], f"Оплата тарифа «{plan_name}»", order["payable"]
+                order["id"], f"Оплата тарифа «{plan_name}» ×{qty}", order["payable"]
             )
         except services.OrderError as e:
             if "order" in locals() and order.get("id"):
@@ -413,7 +415,7 @@ async def create_order(request: Request, plan_id: int = Form(...), promo: str = 
     if balance <= 0:
         return render(request, "payment_fail.html", error="На балансе нет средств")
     try:
-        order = services.create_order(user["id"], plan_id, promo, method="balance")
+        order = services.create_order(user["id"], plan_id, promo, method="balance", quantity=qty)
     except services.OrderError as e:
         return render(request, "payment_fail.html", error=str(e))
     conn = database.get_db()
@@ -783,8 +785,7 @@ async def profile_page(request: Request):
     return render(request, "user/profile.html", user=user)
 
 
-@app.get("/dashboard/balance", response_class=HTMLResponse)
-async def balance_page(request: Request):
+async def _balance_page(request: Request):
     user = require_user(request)
     conn = database.get_db()
     try:
@@ -801,6 +802,16 @@ async def balance_page(request: Request):
         balance=float(app_user.get("balance") or 0),
         transactions=transactions,
     )
+
+
+@app.get("/balance", response_class=HTMLResponse)
+async def balance_alias(request: Request):
+    return await _balance_page(request)
+
+
+@app.get("/dashboard/balance", response_class=HTMLResponse)
+async def balance_page(request: Request):
+    return await _balance_page(request)
 
 
 @app.post("/dashboard/profile/save")

@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS orders (
     paid_at TEXT,
     expires_at TEXT,
     created_at TEXT,
+    quantity INTEGER DEFAULT 1,
     FOREIGN KEY (plan_id) REFERENCES plans(id),
     FOREIGN KEY (promo_code_id) REFERENCES promo_codes(id)
 );

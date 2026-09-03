@@ -19,7 +19,7 @@
   <div class="nav-links">
     {% if user %}
       <a href="/dashboard">Кабинет</a>
-      <a href="/dashboard/balance">Баланс: {{ "%.2f"|format(header_balance(request)) }} ₽</a>
+      <a href="/balance">Баланс: {{ "%.2f"|format(header_balance(request)) }} ₽</a>
       <a href="/dashboard/orders">Заказы</a>
       <a href="/dashboard/profile">Профиль</a>
       <a href="/dashboard/support">Поддержка</a>
