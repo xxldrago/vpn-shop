@@ -37,8 +37,12 @@
   </div>
 </div>
 
-{% if not subscription %}
+{% if subscription %}
+<div class="section-title">Продление / смена тарифа</div>
+<div class="card-sub mb-1">Выберите тариф, чтобы продлить подписку или сменить план. При продлении срок добавляется к текущему.</div>
+{% else %}
 <div class="section-title">Доступные тарифы</div>
+{% endif %}
 <div class="grid grid-3">
   {% for plan in plans %}
   <div class="card">
@@ -51,12 +55,11 @@
       <div class="form-group" style="margin-bottom:8px;">
         <input class="form-control" name="promo" placeholder="Промокод (необязательно)">
       </div>
-      <button class="btn btn-primary btn-block" type="submit">Оплатить</button>
+      <button class="btn btn-primary btn-block" type="submit">{% if subscription %}Продлить{% else %}Оплатить{% endif %}</button>
     </form>
   </div>
   {% endfor %}
 </div>
-{% endif %}
 
 {% if connections %}
 <div class="section-title">Ваши конфигурации ({{ connections|length }})</div>

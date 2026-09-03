@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-title">Выбор способа оплаты</div>
+<div class="page-sub">Тариф «{{ plan_name }}» на сумму <strong>{{ "%.2f"|format(price) }} ₽</strong>.</div>
+
+<div class="card" style="max-width:420px;">
+  <div class="card-sub mb-2">Ваш баланс: <strong style="color:var(--success,#36b37e);">{{ "%.2f"|format(balance) }} ₽</strong></div>
+
+  <form method="post" action="/orders/create">
+    <input type="hidden" name="plan_id" value="{{ plan_id }}">
+    <input type="hidden" name="promo" value="{{ promo }}">
+    <input type="hidden" name="method" value="balance">
+    {% if pay_via_balance %}
+    <button type="submit" class="btn btn-success btn-block">💰 Оплатить с баланса</button>
+    {% else %}
+    <button type="submit" class="btn btn-success btn-block" disabled title="Недостаточно средств">💰 Оплатить с баланса (недостаточно)</button>
+    <div class="card-sub mt-1">На балансе не хватает средств для оплаты. Пополните его или оплатите картой.</div>
+    {% endif %}
+  </form>
+
+  <form method="post" action="/orders/create" class="mt-2">
+    <input type="hidden" name="plan_id" value="{{ plan_id }}">
+    <input type="hidden" name="promo" value="{{ promo }}">
+    <input type="hidden" name="method" value="platega">
+    <button type="submit" class="btn btn-primary btn-block">💳 Оплатить картой (Platega)</button>
+  </form>
+
+  <div class="actions mt-2">
+    <a class="btn btn-ghost btn-sm" href="/dashboard">← Назад</a>
+  </div>
+</div>
+{% endblock %}

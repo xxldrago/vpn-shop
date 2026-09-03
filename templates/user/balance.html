@@ -1,12 +1,23 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="page-title">Баланс</div>
-<div class="page-sub">Скидочный баланс — начисленные бонусы, которые списываются при оплате подписки.</div>
+<div class="page-sub">Личный кошелёк — на него можно пополнять и оплачивать подписки.</div>
 
 <div class="card stat mb-2" style="max-width:400px;">
-  <div class="stat-label">Скидочный баланс</div>
+  <div class="stat-label">Мой баланс</div>
   <div class="stat-value" style="color:var(--success,#36b37e); font-size:2rem;">{{ "%.2f"|format(balance) }} ₽</div>
-  <div class="card-sub">При покупке тарифа эта сумма покроет часть стоимости.</div>
+  <div class="card-sub">Можно оплатить подписку полностью с баланса или пополнить его картой.</div>
+</div>
+
+{% if error %}<div class="alert alert-danger mt-2">{{ error }}</div>{% endif %}
+
+<div class="section-title">Пополнить баланс</div>
+<div class="card" style="max-width:400px;">
+  <form method="post" action="/balance/topup">
+    <label class="lbl">Сумма пополнения, ₽</label>
+    <input type="number" name="amount" step="0.01" min="1" placeholder="Например: 300" required class="input" />
+    <button type="submit" class="btn btn-primary btn-block mt-2">💳 Пополнить через Platega</button>
+  </form>
 </div>
 
 <div class="section-title">История операций</div>
@@ -34,7 +45,7 @@
   </table>
 </div>
 {% else %}
-<div class="alert alert-info mt-2">Пока нет операций по балансу. Приглашайте друзей по реферальной ссылке, чтобы получать бонусы.</div>
+<div class="alert alert-info mt-2">Пока нет операций по балансу. Пополните его картой или получайте бонусы по реферальной программе.</div>
 {% endif %}
 <div class="actions mt-2">
   <a class="btn btn-ghost btn-sm" href="/dashboard">← Назад</a>

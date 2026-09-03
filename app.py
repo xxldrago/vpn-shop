@@ -27,6 +27,20 @@ APP_VERSION = "0.1.0"
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 
+def _header_balance(request: Request):
+    """Fresh wallet balance for the topbar (only for logged-in users)."""
+    sess_user = request.session.get("user") if request.session else None
+    if not sess_user:
+        return None
+    try:
+        return services.get_balance(sess_user["id"])
+    except Exception:
+        return sess_user.get("balance", 0)
+
+
+templates.env.globals["header_balance"] = _header_balance
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     database.init_db()
@@ -365,18 +379,82 @@ async def register(
 # ---------------- Orders / Payment ----------------
 
 @app.post("/orders/create")
-async def create_order(request: Request, plan_id: int = Form(...), promo: str = Form("")):
+async def create_order(request: Request, plan_id: int = Form(...), promo: str = Form(""), method: str = Form("")):
     user = require_user(request)
+    balance = services.get_balance(user["id"])
+
+    if not method:
+        # First step: let the user choose how to pay (unless balance is empty).
+        quote = services.quote_order(plan_id, promo)
+        if balance <= 0:
+            method = "platega"
+        else:
+            return render(
+                request, "checkout.html",
+                plan_id=plan_id, promo=promo, balance=balance,
+                plan_name=quote["plan_name"], price=quote["price"],
+                pay_via_balance=balance >= quote["price"],
+            )
+
+    if method == "platega":
+        try:
+            order = services.create_order(user["id"], plan_id, promo, method="platega")
+            plan_name = order["plan_name"]
+            payment_url = await services.create_platega_payment(
+                order["id"], f"Оплата тарифа «{plan_name}»", order["payable"]
+            )
+        except services.OrderError as e:
+            if "order" in locals() and order.get("id"):
+                services.refund_order_balance(order["id"])
+            return render(request, "payment_fail.html", error=str(e))
+        return RedirectResponse(url=payment_url, status_code=303)
+
+    # method == "balance"
+    if balance <= 0:
+        return render(request, "payment_fail.html", error="На балансе нет средств")
     try:
-        order = services.create_order(user["id"], plan_id, promo)
-        plan_name = order["plan_name"]
+        order = services.create_order(user["id"], plan_id, promo, method="balance")
+    except services.OrderError as e:
+        return render(request, "payment_fail.html", error=str(e))
+    conn = database.get_db()
+    try:
+        await services.fulfill_order(conn, order)
+    finally:
+        conn.close()
+    return RedirectResponse(f"/payment/success?order={order['id']}", status_code=303)
+
+
+def _balance_ctx(user_id: str):
+    conn = database.get_db()
+    try:
+        app_row = conn.execute("SELECT * FROM app_users WHERE id = ?", (user_id,)).fetchone()
+        app_user = dict(app_row) if app_row else {}
+        transactions = [dict(r) for r in conn.execute(
+            "SELECT * FROM balance_transactions WHERE user_id = ? ORDER BY id DESC LIMIT 100",
+            (user_id,),
+        ).fetchall()]
+    finally:
+        conn.close()
+    return float(app_user.get("balance") or 0), transactions
+
+
+@app.post("/balance/topup")
+async def balance_topup(request: Request, amount: float = Form(...)):
+    user = require_user(request)
+    balance, transactions = _balance_ctx(user["id"])
+    if amount <= 0:
+        return render(request, "user/balance.html", balance=balance, transactions=transactions,
+                      error="Укажите сумму больше нуля")
+    try:
+        order = services.create_topup_order(user["id"], amount)
+    except services.OrderError as e:
+        return render(request, "user/balance.html", balance=balance, transactions=transactions, error=str(e))
+    try:
         payment_url = await services.create_platega_payment(
-            order["id"], f"Оплата тарифа «{plan_name}»", order["payable"]
+            order["id"], "Пополнение баланса", order["amount_rub"]
         )
     except services.OrderError as e:
-        if "order" in locals() and order.get("id"):
-            services.refund_order_balance(order["id"])
-        return render(request, "payment_fail.html", error=str(e))
+        return render(request, "user/balance.html", balance=balance, transactions=transactions, error=str(e))
     return RedirectResponse(url=payment_url, status_code=303)
 
 
@@ -547,7 +625,15 @@ async def platega_callback(request: Request):
             return Response(status_code=200)  # idempotent
 
         if status == "CONFIRMED":
-            await fulfill_order(conn, order)
+            if order.get("plan_id") is None:
+                # Wallet top-up: credit balance + apply referral (deposit)
+                services.confirm_topup(order["id"])
+                app_user = conn.execute("SELECT * FROM app_users WHERE id = ?", (order["user_id"],)).fetchone()
+                if app_user:
+                    _apply_referral(conn, order, dict(app_user))
+                    conn.commit()
+            else:
+                await fulfill_order(conn, order)
         elif status in ("CANCELED",):
             conn.execute("UPDATE orders SET status = 'cancelled' WHERE id = ?", (order["id"],))
             services.refund_order_balance(order["id"])

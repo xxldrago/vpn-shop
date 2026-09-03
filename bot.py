@@ -57,6 +57,12 @@ class OrderCB(CallbackData, prefix="o"):
     action: str = "pay"
 
 
+class PayCB(CallbackData, prefix="pay"):
+    method: str
+    plan: int
+    promo: str = ""
+
+
 # ---------------- FSM states ----------------
 
 class RegisterState(StatesGroup):
@@ -66,6 +72,10 @@ class RegisterState(StatesGroup):
 
 class BuyState(StatesGroup):
     promo = State()
+
+
+class BalanceState(StatesGroup):
+    amount = State()
 
 
 class TicketState(StatesGroup):
@@ -273,40 +283,100 @@ async def _buy(message, state: FSMContext, promo: str):
     user = resolve_user(message.from_user.id)
     data = await state.get_data()
     plan_id = data.get("plan_id")
-    renew = data.get("renew", False)
     if not user or not plan_id:
         await message.answer("Ошибка оформления. Начните заново.", reply_markup=main_menu())
         return
     try:
-        order = services.create_order(user["id"], plan_id, promo)
+        quote = services.quote_order(plan_id, promo)
+    except services.OrderError as e:
+        await message.answer(f"❌ {e}", reply_markup=main_menu())
+        return
+    balance = services.get_balance(user["id"])
+
+    # No wallet funds -> go straight to Platega
+    if balance <= 0:
+        try:
+            order = services.create_order(user["id"], plan_id, promo, method="platega")
+            pay_url = await services.create_platega_payment(
+                order["id"], f"Оплата тарифа «{order['plan_name']}»", order["payable"]
+            )
+        except services.OrderError as e:
+            await message.answer(f"❌ {e}", reply_markup=main_menu())
+            return
+        await state.clear()
+        txt = (
+            f"💳 <b>Заказ создан</b>\n"
+            f"Тариф: <b>{order['plan_name']}</b>\n"
+            f"Стоимость: {money(order['price'])}\n"
+            f"К оплате: <b>{money(order['payable'])}</b>\n\n"
+            f"Нажмите Оплатить, чтобы перейти к оплате:"
+        )
+        await message.answer(txt, reply_markup=_markup(
+            [InlineKeyboardButton(text="💳 Оплатить", url=pay_url)],
+            menu_btn(),
+        ))
+        return
+
+    # Wallet has funds -> let the user choose how to pay
+    enough = balance >= quote["price"]
+    buttons = [
+        [InlineKeyboardButton(
+            text=f"💰 Оплатить с баланса ({money(quote['price'])})",
+            callback_data=PayCB(method="balance", plan=quote["plan_id"], promo=promo).pack(),
+        )],
+        [InlineKeyboardButton(
+            text="💳 Оплатить картой (Platega)",
+            callback_data=PayCB(method="platega", plan=quote["plan_id"], promo=promo).pack(),
+        )],
+    ]
+    txt = (
+        f"🛒 <b>{quote['plan_name']}</b> — {money(quote['price'])}\n"
+        f"Ваш баланс: <b>{money(balance)}</b>\n\n"
+        f"Выберите способ оплаты:"
+    )
+    if not enough:
+        txt += "\n\n⚠️ На балансе не хватает средств для полной оплаты — пополните кошелёк или оплатите картой."
+    await message.answer(txt, reply_markup=_markup(*buttons, menu_btn()))
+
+
+@dp.callback_query(PayCB.filter())
+async def on_pay_choice(cb: CallbackQuery, state: FSMContext):
+    user = resolve_user(cb.from_user.id)
+    if not user:
+        await _need_account(cb)
+        return
+    choice = PayCB.unpack(cb.data)
+    method = choice.method
+    plan_id = choice.plan
+    promo = choice.promo
+    await state.clear()
+
+    if method == "balance":
+        try:
+            order = services.create_order(user["id"], plan_id, promo, method="balance")
+        except services.OrderError as e:
+            await cb.message.answer(f"❌ {e}", reply_markup=main_menu())
+            return
+        await _fulfill_and_ack(cb, order)
+        return
+
+    # platega
+    try:
+        order = services.create_order(user["id"], plan_id, promo, method="platega")
         pay_url = await services.create_platega_payment(
             order["id"], f"Оплата тарифа «{order['plan_name']}»", order["payable"]
         )
     except services.OrderError as e:
-        if "order" in locals():
-            services.refund_order_balance(order["id"])
-        await message.answer(f"❌ {e}", reply_markup=main_menu())
+        await cb.message.answer(f"❌ {e}", reply_markup=main_menu())
         return
-
-    await state.clear()
     txt = (
         f"💳 <b>Заказ создан</b>\n"
         f"Тариф: <b>{order['plan_name']}</b>\n"
         f"Стоимость: {money(order['price'])}\n"
+        f"К оплате: <b>{money(order['payable'])}</b>\n\n"
+        f"Нажмите Оплатить, чтобы перейти к оплате:"
     )
-    if order["balance_used"]:
-        txt += f"Списано с баланса: {money(order['balance_used'])}\n"
-    txt += f"К оплате: <b>{money(order['payable'])}</b>\n\n"
-    if order["payable"] <= 0:
-        # fully covered by balance -> pay immediately via webhook-less path
-        txt += "Оплата полностью покрыта балансом. Подписка активируется автоматически."
-        await message.answer(txt, reply_markup=_markup(
-            [InlineKeyboardButton(text="✅ Подтвердить оплату балансом", callback_data=OrderCB(id=order["id"], action="confirm_balance").pack())],
-            menu_btn(),
-        ))
-        return
-    txt += "Нажмите Оплатить, чтобы перейти к оплате:"
-    await message.answer(txt, reply_markup=_markup(
+    await cb.message.answer(txt, reply_markup=_markup(
         [InlineKeyboardButton(text="💳 Оплатить", url=pay_url)],
         menu_btn(),
     ))
@@ -425,7 +495,57 @@ async def m_balance(cb: CallbackQuery, state: FSMContext):
             lines.append(f"{sign}{money(t['amount'])} — {t.get('note') or t['kind']} ({t.get('created_at','')[:10]})")
     else:
         lines.append("Операций пока нет.")
-    await cb.message.answer("\n".join(lines), reply_markup=_markup(menu_btn()))
+    await cb.message.answer(
+        "\n".join(lines),
+        reply_markup=_markup(
+            [InlineKeyboardButton(text="➕ Пополнить кошелёк", callback_data=MenuCB(action="topup").pack())],
+            menu_btn(),
+        ),
+    )
+
+
+@dp.callback_query(MenuCB.filter(F.action == "topup"))
+async def m_topup(cb: CallbackQuery, state: FSMContext):
+    user = resolve_user(cb.from_user.id)
+    if not user:
+        await _need_account(cb)
+        return
+    await state.set_state(BalanceState.amount)
+    await cb.message.answer("Укажите сумму пополнения кошелька в рублях (например: 300):")
+
+
+@dp.message(F.text, StateFilter(BalanceState.amount))
+async def topup_amount(message: Message, state: FSMContext):
+    user = resolve_user(message.from_user.id)
+    if not user:
+        await message.answer("Сначала зарегистрируйтесь.", reply_markup=main_menu())
+        await state.clear()
+        return
+    text = message.text.strip().replace(",", ".")
+    try:
+        amount = float(text)
+    except ValueError:
+        await message.answer("Введите сумму числом, например: 300")
+        return
+    if amount <= 0:
+        await message.answer("Сумма должна быть больше нуля. Введите заново:")
+        return
+    try:
+        order = services.create_topup_order(user["id"], amount)
+        pay_url = await services.create_platega_payment(order["id"], "Пополнение баланса", order["amount_rub"])
+    except services.OrderError as e:
+        await message.answer(f"❌ {e}", reply_markup=main_menu())
+        await state.clear()
+        return
+    await state.clear()
+    await message.answer(
+        f"💳 <b>Пополнение баланса на {money(order['amount_rub'])}</b>\n\n"
+        f"После оплаты средства зачислятся автоматически.",
+        reply_markup=_markup(
+            [InlineKeyboardButton(text="💳 Оплатить", url=pay_url)],
+            menu_btn(),
+        ),
+    )
 
 
 # ---------------- Referral ----------------

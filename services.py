@@ -279,12 +279,15 @@ def apply_promo_price(base_price: float, promo: dict | None) -> float:
 
 # ---------------- Orders ----------------
 
-def create_order(user_id: str, plan_id: int, promo_code: str = "") -> dict:
-    """Create a pending order applying promo + discount balance.
+def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str = "balance") -> dict:
+    """Create a pending order with an explicit payment method.
 
-    Returns order record (with payable = amount_rub). Balance used is reserved
-    (debited). If a later step fails, call refund_order_balance() to restore it.
-    Raises services.OrderError with .message on user-facing failures.
+    method="balance": pays the FULL price from the personal wallet. Debited at
+        order creation (reserved); caller must fulfil (mark paid) promptly.
+    method="platega": pays the FULL price via Platega. Balance is NOT touched
+        (no automatic partial discount — the wallet is opt-in).
+
+    Returns order record dict. Raise services.OrderError (.message) on failure.
     """
     plan = get_plan(plan_id, active_only=True)
     if not plan:
@@ -293,12 +296,20 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "") -> dict:
     if promo_code.strip() and promo_err:
         raise OrderError(promo_err)
 
-    price = apply_promo_price(plan["price_rub"], promo)
+    price = round(apply_promo_price(plan["price_rub"], promo), 2)
     order_id = str(uuid.uuid4())
-    original_price = round(price, 2)
+
+    method = "platega" if method != "balance" else "balance"
     balance = get_balance(user_id)
-    balance_used = min(balance, original_price)
-    payable = round(original_price - balance_used, 2)
+
+    if method == "balance":
+        if balance < price - 0.001:
+            raise OrderError("Недостаточно средств на балансе для оплаты")
+        balance_used = min(balance, price)
+        payable = round(price - balance_used, 2)
+    else:
+        balance_used = 0.0
+        payable = price
 
     conn = database.get_db()
     try:
@@ -306,7 +317,7 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "") -> dict:
             "INSERT INTO orders (id, user_id, plan_id, plan_name, promo_code_id, amount_rub, original_price_rub, balance_used_rub, status, created_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
             (order_id, user_id, plan_id, plan["name"], promo["id"] if promo else None,
-             payable, original_price, balance_used, now_iso()),
+             payable, price, balance_used, now_iso()),
         )
         if balance_used > 0:
             conn.execute("UPDATE app_users SET balance = balance - ? WHERE id = ?", (balance_used, user_id))
@@ -314,7 +325,7 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "") -> dict:
                 "INSERT INTO balance_transactions (user_id, amount, kind, ref_order_id, note, created_at)"
                 " VALUES (?, ?, 'spend', ?, ?, ?)",
                 (user_id, -balance_used, order_id,
-                 f"Оплата тарифа «{plan['name']}» из скидочного баланса", now_iso()),
+                 f"Оплата тарифа «{plan['name']}» с баланса", now_iso()),
             )
         conn.commit()
     finally:
@@ -325,11 +336,72 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "") -> dict:
         "user_id": user_id,
         "plan_id": plan_id,
         "plan_name": plan["name"],
-        "price": original_price,
+        "price": price,
         "payable": payable,
         "balance_used": balance_used,
         "promo_code_id": promo["id"] if promo else None,
     }
+
+
+def quote_order(plan_id: int, promo_code: str = "") -> dict:
+    """Price preview for an order without creating it. Returns price after promo."""
+    plan = get_plan(plan_id, active_only=True)
+    if not plan:
+        raise OrderError("Тариф не найден")
+    promo, promo_err = resolve_promo(promo_code)
+    if promo_code.strip() and promo_err:
+        raise OrderError(promo_err)
+    return {
+        "plan_id": plan_id,
+        "plan_name": plan["name"],
+        "price": round(apply_promo_price(plan["price_rub"], promo), 2),
+        "promo_code_id": promo["id"] if promo else None,
+    }
+
+
+def create_topup_order(user_id: str, amount: float) -> dict:
+    """Create a wallet top-up order (payable via Platega). No plan involved."""
+    try:
+        amount = round(float(amount), 2)
+    except (TypeError, ValueError):
+        raise OrderError("Укажите корректную сумму пополнения")
+    if amount < 1:
+        raise OrderError("Минимальная сумма пополнения — 1 ₽")
+    if amount > 100000:
+        raise OrderError("Слишком большая сумма пополнения")
+    order_id = str(uuid.uuid4())
+    conn = database.get_db()
+    try:
+        conn.execute(
+            "INSERT INTO orders (id, user_id, plan_id, plan_name, amount_rub, original_price_rub,"
+            " balance_used_rub, status, created_at)"
+            " VALUES (?, ?, NULL, 'Пополнение баланса', ?, ?, 0, 'pending', ?)",
+            (order_id, user_id, amount, amount, now_iso()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"id": order_id, "user_id": user_id, "amount_rub": amount, "type": "topup"}
+
+
+def confirm_topup(order_id: str) -> bool:
+    """Credit the wallet for a paid top-up order. Idempotent. Returns True if credited."""
+    conn = database.get_db()
+    try:
+        order = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if not order or order["status"] == "paid":
+            return False
+        amount = float(order["amount_rub"] or 0)
+        if amount <= 0:
+            conn.execute("UPDATE orders SET status = 'paid', paid_at = ? WHERE id = ?", (now_iso(), order_id))
+            conn.commit()
+            return True
+        add_balance(conn, order["user_id"], amount, "topup", ref_order_id=order_id, note="Пополнение баланса")
+        conn.execute("UPDATE orders SET status = 'paid', paid_at = ? WHERE id = ?", (now_iso(), order_id))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
 
 
 async def create_platega_payment(order_id: str, description: str, amount: float) -> str:
@@ -518,7 +590,22 @@ async def fulfill_order(conn, order: dict):
         provisioning_error = str(e)
 
     if panel_user and plan and days:
-        expires_at = (utcnow() + timedelta(days=days)).isoformat()
+        # Renewal: if the user already has an active subscription, extend from
+        # its current expiry (or now, whichever is later) instead of starting fresh.
+        active = conn.execute(
+            "SELECT expires_at FROM orders WHERE user_id = ? AND status = 'paid'"
+            " AND expires_at IS NOT NULL AND expires_at > ? ORDER BY expires_at DESC LIMIT 1",
+            (app_user["id"], now_iso()),
+        ).fetchone()
+        base = utcnow()
+        if active and active["expires_at"]:
+            try:
+                base = datetime.fromisoformat(active["expires_at"])
+                if base < utcnow():
+                    base = utcnow()
+            except ValueError:
+                base = utcnow()
+        expires_at = (base + timedelta(days=days)).isoformat()
         panel = get_panel_client()
         try:
             await panel.update_panel_user(panel_user["id"], expiration_date=expires_at)
