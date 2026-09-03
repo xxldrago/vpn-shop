@@ -8,7 +8,7 @@
     <table>
       <thead>
         <tr>
-          <th>№</th><th>Тариф</th><th>Сумма</th><th>Статус</th><th>Создан</th><th>Истекает</th>
+          <th>№</th><th>Тариф</th><th>Сумма</th><th>Статус</th><th>Создан</th><th>Истекает</th><th></th>
         </tr>
       </thead>
       <tbody>
@@ -20,21 +20,36 @@
             {% if o.is_trial %}<span class="badge badge-info">тест</span>{% endif %}
           </td>
           <td>{% if o.amount_rub %}{{ "%.2f"|format(o.amount_rub) }} ₽{% else %}—{% endif %}</td>
-          <td>
-            {% if o.status == 'paid' %}<span class="badge badge-success">Оплачено</span>
-            {% elif o.status == 'pending' %}<span class="badge badge-warning">Ожидает</span>
-            {% elif o.status == 'expired' %}<span class="badge badge-dim">Истёк</span>
-            {% elif o.status == 'cancelled' %}<span class="badge badge-danger">Отменён</span>
+<td>
+            {% if o.status == "paid" %}<span class="badge badge-success">Оплачено</span>
+            {% elif o.status == "pending" %}<span class="badge badge-warning">Ожидает</span>
+            {% elif o.status == "expired" %}<span class="badge badge-dim">Истёк</span>
+            {% elif o.status == "cancelled" %}<span class="badge badge-danger">Отменён</span>
             {% else %}<span class="badge badge-dim">{{ o.status }}</span>{% endif %}
           </td>
           <td>{{ o.created_at[:16].replace('T', ' ') }}</td>
           <td>{% if o.expires_at %}{{ o.expires_at[:10] }}{% else %}—{% endif %}</td>
+          <td>
+            {% if o.status in ["pending", "cancelled", "expired"] %}
+            <button class="btn btn-danger btn-sm" onclick="confirmDelete('{{ o.id }}')">Удалить</button>
+            {% endif %}
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="muted center">Заказов пока нет</td></tr>
+        <tr><td colspan="7" class="muted center">Заказов пока нет</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+function confirmDelete(orderId) {
+  if (confirm('Удалить заказ #' + orderId + '? Это действие нельзя отменить.')) {
+    fetch('/dashboard/orders/' + orderId + '/delete', { method: 'POST', credentials: 'same-origin' })
+      .then(r => { if (r.ok) location.reload(); else alert('Ошибка удаления'); });
+  }
+}
+</script>
 {% endblock %}

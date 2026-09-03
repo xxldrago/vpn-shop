@@ -12,30 +12,18 @@
 </div>
 {% endif %}
 
-<div class="grid grid-4 mt-2">
-  <div class="card stat">
-    <div class="stat-label">Статус</div>
-    <div class="stat-value">
-      {% if subscription %}
-        <span class="badge badge-success">Активна</span>
-      {% else %}
-        <span class="badge badge-dim">Нет подписки</span>
-      {% endif %}
-    </div>
-  </div>
-  <div class="card stat">
-    <div class="stat-label">Истекает</div>
-    <div class="stat-value">{% if subscription and subscription.expires_at %}{{ subscription.expires_at[:10] }}{% else %}—{% endif %}</div>
-  </div>
-  <div class="card stat">
-    <div class="stat-label">Конфигурации</div>
-    <div class="stat-value">{{ connections|length }}</div>
-  </div>
-  <div class="card stat">
-    <div class="stat-label">Баланс</div>
-    <div class="stat-value" style="color:var(--success,#36b37e);">{{ "%.2f"|format(balance) }} ₽</div>
-    <a class="btn btn-primary btn-sm mt-1" href="/dashboard/balance">Пополнить баланс</a>
-  </div>
+<div class="stat-row mt-2" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+  <span class="badge {% if subscription %}badge-success{% else %}badge-dim{% endif %}" style="font-size:0.9rem; padding:8px 14px;">
+    {% if subscription %}Активна{% else %}Нет подписки{% endif %}
+  </span>
+  {% if subscription and subscription.expires_at %}
+  <span class="badge badge-info" style="font-size:0.9rem; padding:8px 14px;">До {{ subscription.expires_at[:10] }}</span>
+  {% endif %}
+  <span class="badge badge-dim" style="font-size:0.9rem; padding:8px 14px;">Конфиги: {{ connections|length }}</span>
+  <span class="badge" style="font-size:0.9rem; padding:8px 14px; background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff;">
+    {{ "%.2f"|format(balance) }} ₽
+  </span>
+  <a class="btn btn-primary btn-sm" href="/dashboard/balance" style="margin-left:auto;">Пополнить</a>
 </div>
 
 {% if subscription %}

@@ -884,6 +884,27 @@ async def orders_page(request: Request):
     return render(request, "user/orders.html", orders=orders)
 
 
+@app.post("/dashboard/orders/{order_id}/delete")
+async def delete_order(request: Request, order_id: str):
+    user = require_user(request)
+    conn = database.get_db()
+    try:
+        # Check ownership and status
+        order = conn.execute(
+            "SELECT status FROM orders WHERE id = ? AND user_id = ?",
+            (order_id, user["id"])
+        ).fetchone()
+        if not order:
+            return JSONResponse({"error": "Заказ не найден"}, status_code=404)
+        if order["status"] == 'paid':
+            return JSONResponse({"error": "Нельзя удалить оплаченный заказ"}, status_code=400)
+        conn.execute("DELETE FROM orders WHERE id = ?", (order_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    return JSONResponse({"ok": True})
+
+
 # ---------------- Support (user) ----------------
 
 @app.get("/dashboard/support", response_class=HTMLResponse)
