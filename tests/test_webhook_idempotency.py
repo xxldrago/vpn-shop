@@ -9,6 +9,8 @@ Reaches the real route (/webhook/callback) via FastAPI TestClient so the
 HTTP contract (401 for bad headers, 404 for unknown order, 200 for replay)
 is asserted against the actual handler.
 """
+import threading
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -283,3 +285,43 @@ def test_webhook_confirm_then_cancel_no_refund_after_credit(test_db, monkeypatch
     assert _order_status(oid) == "paid"
     assert _balance(user["id"]) == before  # no refund after credit
     assert len(_ledger_kind(user["id"], "refund")) == 0
+
+
+def test_webhook_confirm_cancel_race_has_one_winner(test_db, monkeypatch):
+    """Concurrent CONFIRMED/CANCELED delivery has one transition and one effect."""
+    _setup_merchant(test_db)
+    monkeypatch.setattr(app_module.services, "get_panel_client", lambda: _PanelFake())
+    user = _create_user("race2", balance=400)
+    conn = database.get_db()
+    try:
+        plan_id = conn.execute("SELECT id FROM plans WHERE price_rub = 250.0").fetchone()["id"]
+    finally:
+        conn.close()
+    order = services.create_order(user["id"], plan_id, method="balance")
+    oid = order["id"]
+    barrier = threading.Barrier(2)
+    responses = []
+
+    def deliver(body):
+        barrier.wait()
+        with _client() as client:
+            responses.append(client.post("/webhook/callback", headers=_headers(), json=body))
+
+    threads = [
+        threading.Thread(target=deliver, args=(_confirm_body("txn-race2", payload=oid),)),
+        threading.Thread(target=deliver, args=(_cancel_body("txn-race2", payload=oid),)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert [response.status_code for response in responses] == [200, 200]
+    status = _order_status(oid)
+    assert status in {"paid", "cancelled"}
+    if status == "paid":
+        assert _balance(user["id"]) == 150
+        assert len(_ledger_kind(user["id"], "refund")) == 0
+    else:
+        assert _balance(user["id"]) == 400
+        assert len(_ledger_kind(user["id"], "refund")) == 1

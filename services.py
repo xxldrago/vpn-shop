@@ -429,23 +429,27 @@ def create_topup_order(user_id: str, amount) -> dict:
 
 
 def confirm_topup(order_id: str) -> bool:
-    """Credit the wallet for a paid top-up order. Idempotent. Returns True if credited."""
-    conn = database.get_db()
-    try:
+    """Credit the wallet for a paid top-up order. Idempotent. Returns True if credited.
+
+    Claim-then-effect: an UPDATE guarded by status='pending' whose rowcount
+    gates the credit, so a replayed CONFIRMED delivery (Platega retries up to
+    3x) cannot double-credit (FOUND-04 / D-09).
+    """
+    with database.tx() as conn:
         order = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
-        if not order or order["status"] == "paid":
+        if not order:
             return False
         amount = money.to_rub(order["amount_rub"] or 0)
-        if amount <= 0:
-            conn.execute("UPDATE orders SET status = 'paid', paid_at = ? WHERE id = ?", (now_iso(), order_id))
-            conn.commit()
-            return True
-        add_balance_int(conn, order["user_id"], amount, "topup", ref_order_id=order_id, note="Пополнение баланса")
-        conn.execute("UPDATE orders SET status = 'paid', paid_at = ? WHERE id = ?", (now_iso(), order_id))
-        conn.commit()
+        cur = conn.execute(
+            "UPDATE orders SET status = 'paid', paid_at = ? WHERE id = ? AND status = 'pending'",
+            (now_iso(), order_id),
+        )
+        if cur.rowcount != 1:
+            return False  # already claimed — idempotent no-op
+        if amount > 0:
+            add_balance_int(conn, order["user_id"], amount, "topup",
+                            ref_order_id=order_id, note="Пополнение баланса")
         return True
-    finally:
-        conn.close()
 
 
 async def create_platega_payment(order_id: str, description: str, amount: float) -> str:
@@ -592,10 +596,34 @@ async def ensure_panel_user(user: dict) -> dict:
 
 # ---------------- Referral ----------------
 
-def apply_referral(conn, order: dict, app_user: dict):
-    """Credit referral bonuses / commissions. Called once per paid order."""
+def claim_apply_referral(conn, order: dict):
+    """Credit referral bonuses / commissions using rowcount-gated flag claims.
+
+    Idempotent by construction: the order's `referral_applied` transition is
+    claimed with a guarded UPDATE (WHERE referral_applied=0); a replay finds
+    rowcount==0 and returns with zero effects (FOUND-04 / D-09, T-01-10).
+    On the first win, a referred user's first deposit (>= threshold) claims
+    `referred_paid` (WHERE referred_paid=0) to gate the one-time referee +
+    referrer rewards; every subsequent deposit on a referred user earns the
+    referrer a set % commission (floored per D-02).
+    """
+    order_ref = conn.execute(
+        "SELECT referral_applied FROM orders WHERE id = ?", (order["id"],)
+    ).fetchone()
+    if not order_ref or order_ref["referral_applied"]:
+        return  # already applied this order — idempotent no-op
+    cur = conn.execute(
+        "UPDATE orders SET referral_applied = 1 WHERE id = ? AND referral_applied = 0",
+        (order["id"],),
+    )
+    if cur.rowcount != 1:
+        return  # lost the claim — another delivery won
     if not get_setting_bool("referral_enabled", True):
         return
+    app_row = conn.execute(
+        "SELECT * FROM app_users WHERE id = ?", (order["user_id"],)
+    ).fetchone()
+    app_user = dict(app_row) if app_row else {}
     referrer_id = app_user.get("referrer_id")
     if not referrer_id or order.get("is_trial"):
         return
@@ -605,45 +633,60 @@ def apply_referral(conn, order: dict, app_user: dict):
 
     threshold = get_setting_int("referral_threshold", 100)
     commission_percent = get_setting_int("referral_commission_percent", 25)
-    already_paid = bool(app_user.get("referred_paid"))
 
-    if not already_paid:
+    if not app_user.get("referred_paid"):
+        # First deposit of a referred user: one-time reward, gated on the
+        # referred_paid claim so a replay of the same delivery cannot re-pay.
         if deposit >= threshold:
             referee_bonus = get_setting_int("referral_bonus_referee", 100)
             referrer_bonus = get_setting_int("referral_bonus_referrer", 100)
-            if referee_bonus > 0:
-                add_balance_int(conn, app_user["id"], referee_bonus, "referral_bonus",
-                                ref_order_id=order["id"], note="Бонус за первый депозит по реферальной программе")
-            if referrer_bonus > 0:
-                add_balance_int(conn, referrer_id, referrer_bonus, "referral_reward",
-                                ref_order_id=order["id"], note="Вознаграждение за приглашение")
-            conn.execute("UPDATE app_users SET referred_paid = 1 WHERE id = ?", (app_user["id"],))
-    else:
-        if commission_percent > 0 and deposit > 0:
-            commission = math.floor(deposit * commission_percent / 100)
-            if commission > 0:
-                add_balance_int(conn, referrer_id, commission, "referral_commission",
-                                ref_order_id=order["id"], note=f"Комиссия {commission_percent}% от пополнения")
+            cur2 = conn.execute(
+                "UPDATE app_users SET referred_paid = 1 WHERE id = ? AND referred_paid = 0",
+                (order["user_id"],),
+            )
+            if cur2.rowcount == 1:
+                if referee_bonus > 0:
+                    add_balance_int(conn, app_user["id"], referee_bonus, "referral_bonus",
+                                    ref_order_id=order["id"],
+                                    note="Бонус за первый депозит по реферальной программе")
+                if referrer_bonus > 0:
+                    add_balance_int(conn, referrer_id, referrer_bonus, "referral_reward",
+                                    ref_order_id=order["id"],
+                                    note="Вознаграждение за приглашение")
+        return
+
+    # Subsequent deposit — % commission to the referrer (floored per D-02).
+    if commission_percent > 0 and deposit > 0:
+        commission = math.floor(deposit * commission_percent / 100)
+        if commission > 0:
+            add_balance_int(conn, referrer_id, commission, "referral_commission",
+                            ref_order_id=order["id"],
+                            note=f"Комиссия {commission_percent}% от пополнения")
 
 
-async def fulfill_order(conn, order: dict):
-    """Fulfill a paid order: referral rewards + panel provisioning + mark paid."""
+def apply_referral(conn, order: dict, app_user: dict):
+    """Legacy idempotent referral credit; delegates to the claim-based helper.
+
+    Kept for callers that pass a pre-fetched app_user (e.g. fulfill_order);
+    the claim semantics (referral_applied / referred_paid) live in
+    claim_apply_referral.
+    """
+    return claim_apply_referral(conn, order)
+
+
+async def _fulfill_order_side_effects(conn, order: dict):
+    """Provision a previously claimed paid order after its claim commits."""
     app_user_row = conn.execute("SELECT * FROM app_users WHERE id = ?", (order["user_id"],)).fetchone()
     if not app_user_row:
         app_user_row = conn.execute("SELECT * FROM app_users WHERE username = ?", (order["user_id"],)).fetchone()
     if not app_user_row:
         conn.execute(
-            "UPDATE orders SET status = 'paid', paid_at = ?, provisioning_error = ? WHERE id = ?",
-            (now_iso(), "Shop user not found", order["id"]),
+            "UPDATE orders SET provisioning_error = ? WHERE id = ?",
+            ("Shop user not found", order["id"]),
         )
         conn.commit()
         return
     app_user = dict(app_user_row)
-
-    if not order.get("referral_applied"):
-        apply_referral(conn, order, app_user)
-        conn.execute("UPDATE orders SET referral_applied = 1 WHERE id = ?", (order["id"],))
-        conn.commit()
 
     plan = conn.execute("SELECT * FROM plans WHERE id = ?", (order["plan_id"],)).fetchone()
     days = plan["duration_days"] if plan else 0
@@ -684,15 +727,40 @@ async def fulfill_order(conn, order: dict):
 
     with_configs = [c for c in connections if c["config"]]
     conn.execute(
-        "UPDATE orders SET status = 'paid', paid_at = ?, expires_at = ?, panel_user_connections = ?,"
+        "UPDATE orders SET expires_at = ?, panel_user_connections = ?,"
         " panel_user_created = ?, provisioning_error = ? WHERE id = ?",
-        (now_iso(), expires_at, json.dumps(with_configs, ensure_ascii=False),
+        (expires_at, json.dumps(with_configs, ensure_ascii=False),
          1 if panel_user else 0, provisioning_error or None, order["id"]),
     )
     if order["promo_code_id"]:
         conn.execute("UPDATE promo_codes SET used_count = used_count + 1 WHERE id = ?",
                      (order["promo_code_id"],))
     conn.commit()
+
+
+async def fulfill_order_side_effects(order: dict):
+    """Run panel provisioning for an order whose paid claim already committed."""
+    conn = database.get_db()
+    try:
+        await _fulfill_order_side_effects(conn, order)
+    finally:
+        conn.close()
+
+
+async def fulfill_order(conn, order: dict):
+    """Claim a pending order, apply referral effects, then provision it."""
+    with database.tx(conn) as tx_conn:
+        cur = tx_conn.execute(
+            "UPDATE orders SET status = 'paid', paid_at = ? WHERE id = ? AND status = 'pending'",
+            (now_iso(), order["id"]),
+        )
+        if cur.rowcount != 1:
+            return False
+        claimed = tx_conn.execute("SELECT * FROM orders WHERE id = ?", (order["id"],)).fetchone()
+        order = dict(claimed)
+        claim_apply_referral(tx_conn, order)
+    await _fulfill_order_side_effects(conn, order)
+    return True
 
 
 def confirm_order_paid(order_id: str):

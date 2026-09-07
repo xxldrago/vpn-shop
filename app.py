@@ -16,6 +16,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from config import BASE_DIR, SESSION_SECRET
 import database
+import money as money_utils
 import services
 from services import now_iso, utcnow
 from panel_client import PanelClient, PanelClientError
@@ -615,111 +616,43 @@ async def platega_callback(request: Request):
         if not order:
             return JSONResponse({"error": "Order not found"}, status_code=404)
         order = dict(order)
-
-        if order["status"] == "paid":
-            return Response(status_code=200)  # idempotent
-
-        if status == "CONFIRMED":
-            if order.get("plan_id") is None:
-                # Wallet top-up: credit balance + apply referral (deposit)
-                services.confirm_topup(order["id"])
-                app_user = conn.execute("SELECT * FROM app_users WHERE id = ?", (order["user_id"],)).fetchone()
-                if app_user:
-                    _apply_referral(conn, order, dict(app_user))
-                    conn.commit()
-            else:
-                await fulfill_order(conn, order)
-        elif status in ("CANCELED",):
-            conn.execute("UPDATE orders SET status = 'cancelled' WHERE id = ?", (order["id"],))
-            services.refund_order_balance(order["id"])
-            conn.commit()
     finally:
         conn.close()
+
+    if status == "CONFIRMED":
+        with database.tx() as conn:
+            claim = conn.execute(
+                "UPDATE orders SET status = 'paid', paid_at = ? WHERE id = ? AND status = 'pending'",
+                (now_iso(), order["id"]),
+            )
+            if claim.rowcount != 1:
+                return Response(status_code=200)
+            claimed_order = dict(
+                conn.execute("SELECT * FROM orders WHERE id = ?", (order["id"],)).fetchone()
+            )
+            if claimed_order.get("plan_id") is None:
+                services.add_balance_int(
+                    conn,
+                    claimed_order["user_id"],
+                    money_utils.to_rub(claimed_order["amount_rub"] or 0),
+                    "topup",
+                    ref_order_id=claimed_order["id"],
+                    note="Пополнение баланса",
+                )
+            services.claim_apply_referral(conn, claimed_order)
+        if claimed_order.get("plan_id") is not None:
+            await services.fulfill_order_side_effects(claimed_order)
+    elif status == "CANCELED":
+        with database.tx() as conn:
+            services._refund_order_balance_tx(conn, order["id"])
 
     return Response(status_code=200)
 
 
 # ---------------- Referral rewards ----------------
 
-def _refund_balance(conn, order: dict):
-    """Refund the discount balance reserved for an order that was never paid."""
-    used = float(order.get("balance_used_rub") or 0)
-    if used <= 0:
-        return
-    user_id = order["user_id"]
-    row = conn.execute("SELECT balance FROM app_users WHERE id = ?", (order["user_id"],)).fetchone()
-    if not row:
-        user_id = order["user_id"]
-    conn.execute("UPDATE app_users SET balance = balance + ? WHERE id = ?", (used, user_id))
-    conn.execute(
-        "INSERT INTO balance_transactions (user_id, amount, kind, ref_order_id, note, created_at)"
-        " VALUES (?, ?, 'refund', ?, 'Возврат резерва по неподтверждённому заказу', ?)",
-        (user_id, used, order["id"], now_iso()),
-    )
-    conn.execute("DELETE FROM balance_transactions WHERE ref_order_id = ? AND kind = 'spend'",
-                 (order["id"],))
-
-
-def _apply_referral(conn, order: dict, app_user: dict):
-    """Credit referral bonuses / commissions. Called once per paid order.
-
-    - First deposit of a referred user (>= threshold) credits the user a bonus
-      and the referrer a one-time reward.
-    - Every subsequent deposit earns the referrer a set % commission.
-    Amounts/percentages are read from shop settings (adjustable, can be disabled).
-    """
-    if not database.get_setting("referral_enabled", "True"):
-        return
-    referrer_id = app_user.get("referrer_id")
-    if not referrer_id or order.get("is_trial"):
-        return
-
-    # The "deposit" is the real Platega amount paid for this order.
-    deposit = float(order.get("amount_rub") or 0)
-    if deposit <= 0:
-        return
-
-    try:
-        threshold = float(database.get_setting("referral_threshold", "100") or 0)
-    except ValueError:
-        threshold = 100.0
-    try:
-        commission_percent = float(database.get_setting("referral_commission_percent", "25") or 0)
-    except ValueError:
-        commission_percent = 25.0
-
-    already_paid = bool(app_user.get("referred_paid"))
-
-    if not already_paid:
-        if deposit >= threshold:
-            # First deposit — credit both sides
-            try:
-                referee_bonus = float(database.get_setting("referral_bonus_referee", "100") or 0)
-            except ValueError:
-                referee_bonus = 100.0
-            try:
-                referrer_bonus = float(database.get_setting("referral_bonus_referrer", "100") or 0)
-            except ValueError:
-                referrer_bonus = 100.0
-            if referee_bonus > 0:
-                add_balance(conn, app_user["id"], referee_bonus, "referral_bonus",
-                            ref_order_id=order["id"], note="Бонус за первый депозит по реферальной программе")
-            if referrer_bonus > 0:
-                add_balance(conn, referrer_id, referrer_bonus, "referral_reward",
-                            ref_order_id=order["id"], note="Вознаграждение за приглашение")
-            conn.execute("UPDATE app_users SET referred_paid = 1 WHERE id = ?", (app_user["id"],))
-    else:
-        # Subsequent deposit — % commission to the referrer
-        if commission_percent > 0 and deposit > 0:
-            commission = round(deposit * commission_percent / 100.0, 2)
-            if commission > 0:
-                add_balance(conn, referrer_id, commission, "referral_commission",
-                            ref_order_id=order["id"],
-                            note=f"Комиссия {commission_percent}% от пополнения")
-
-
 async def fulfill_order(conn, order: dict):
-    await services.fulfill_order(conn, order)
+    return await services.fulfill_order(conn, order)
 
 
 # ---------------- User Dashboard ----------------
