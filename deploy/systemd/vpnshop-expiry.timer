@@ -1,0 +1,10 @@
+[Unit]
+Description=Run vpnshop-expiry hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=vpnshop-expiry.service
+
+[Install]
+WantedBy=timers.target

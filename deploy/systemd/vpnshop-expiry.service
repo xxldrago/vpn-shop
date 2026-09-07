@@ -1,0 +1,12 @@
+# VpnShop subscription expiry job — systemd one-shot service.
+# The timer runs this inside the shared shop container.
+
+[Unit]
+Description=L0 vpn-shop subscription expiry job
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/vpn-shop
+ExecStart=docker compose exec -T shop python -m jobs expiry

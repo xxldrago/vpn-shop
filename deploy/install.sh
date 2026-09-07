@@ -106,6 +106,15 @@ fi
 echo "==> [5/6] Building & starting shop + bot"
 docker compose -f deploy/docker-compose.yml up -d --build
 
+echo "==> Registering scheduled shop jobs"
+cp deploy/systemd/vpnshop-expiry.service \
+   deploy/systemd/vpnshop-expiry.timer \
+   deploy/systemd/vpnshop-reconcile.service \
+   deploy/systemd/vpnshop-reconcile.timer \
+   /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now vpnshop-expiry.timer vpnshop-reconcile.timer
+
 echo "==> [6/6] nginx + Let's Encrypt for both subdomains"
 rm -f /etc/nginx/sites-enabled/default
 

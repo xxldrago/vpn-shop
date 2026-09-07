@@ -1,0 +1,10 @@
+[Unit]
+Description=Run vpnshop-reconcile every 20 minutes
+
+[Timer]
+OnCalendar=*-*-* *:0/20
+Persistent=true
+Unit=vpnshop-reconcile.service
+
+[Install]
+WantedBy=timers.target
