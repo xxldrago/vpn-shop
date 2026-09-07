@@ -61,6 +61,14 @@ def get_setting_float(key, default):
         return default
 
 
+def get_setting_int(key, default):
+    """Read an integer setting from the DB (whole rubles per D-01/D-02)."""
+    try:
+        return money.to_rub(database.get_setting(key, default) or default)
+    except (TypeError, ValueError):
+        return default
+
+
 # ---------------- Users ----------------
 
 def get_user_by_id(user_id: str) -> dict | None:
@@ -275,14 +283,9 @@ def resolve_promo(code: str) -> dict | None:
         conn.close()
 
 
-def apply_promo_price(base_price: float, promo: dict | None) -> float:
-    price = base_price
-    if promo:
-        if promo.get("discount_percent"):
-            price = price * (100 - promo["discount_percent"]) / 100
-        elif promo.get("discount_amount_rub"):
-            price = max(0, price - promo["discount_amount_rub"])
-    return price
+def apply_promo_price(base_price, promo):
+    """Thin delegate to money.apply_promo_price_rub (integer, floor per D-02)."""
+    return money.apply_promo_price_rub(money.to_rub(base_price), promo)
 
 
 # ---------------- Orders ----------------
@@ -378,22 +381,23 @@ def quote_order(plan_id: int, promo_code: str = "", quantity: int = 1) -> dict:
     if promo_code.strip() and promo_err:
         raise OrderError(promo_err)
     qty = max(1, int(quantity))
-    base_price = round(apply_promo_price(plan["price_rub"], promo), 2)
-    total_price = round(base_price * qty, 2)
+    unit_price = money.to_rub(plan["price_rub"])
+    base_price = money.apply_promo_price_rub(unit_price, promo)
+    price = money.apply_promo_price_rub(unit_price * qty, promo)
     return {
         "plan_id": plan_id,
         "plan_name": plan["name"],
         "base_price": base_price,
         "quantity": qty,
-        "price": total_price,
+        "price": price,
         "promo_code_id": promo["id"] if promo else None,
     }
 
 
-def create_topup_order(user_id: str, amount: float) -> dict:
+def create_topup_order(user_id: str, amount) -> dict:
     """Create a wallet top-up order (payable via Platega). No plan involved."""
     try:
-        amount = round(float(amount), 2)
+        amount = money.to_rub(amount)
     except (TypeError, ValueError):
         raise OrderError("Укажите корректную сумму пополнения")
     if amount < 1:
@@ -566,14 +570,14 @@ def apply_referral(conn, order: dict, app_user: dict):
     if deposit <= 0:
         return
 
-    threshold = get_setting_float("referral_threshold", 100.0)
-    commission_percent = get_setting_float("referral_commission_percent", 25.0)
+    threshold = get_setting_int("referral_threshold", 100)
+    commission_percent = get_setting_int("referral_commission_percent", 25)
     already_paid = bool(app_user.get("referred_paid"))
 
     if not already_paid:
         if deposit >= threshold:
-            referee_bonus = get_setting_float("referral_bonus_referee", 100.0)
-            referrer_bonus = get_setting_float("referral_bonus_referrer", 100.0)
+            referee_bonus = get_setting_int("referral_bonus_referee", 100)
+            referrer_bonus = get_setting_int("referral_bonus_referrer", 100)
             if referee_bonus > 0:
                 add_balance(conn, app_user["id"], referee_bonus, "referral_bonus",
                             ref_order_id=order["id"], note="Бонус за первый депозит по реферальной программе")

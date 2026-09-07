@@ -10,18 +10,23 @@ promo math and rendering. The DB columns stay REAL until the plan-07
 storage migration; callers convert at read/write time with money.to_rub().
 """
 import math
-from decimal import Decimal, ROUND_FLOOR
+from decimal import Decimal, InvalidOperation, ROUND_FLOOR
 
 
 def to_rub(x) -> int:
     """Floor any incoming amount (float/str/Decimal/int) to whole rubles.
 
     Raises ValueError on bool/None (per RESEARCH) — a bool is not a money
-    value and silently converting it would mask programming errors.
+    value and silently converting it would mask programming errors. Any
+    string that Decimal cannot parse also raises ValueError so callers can
+    uniformly catch (TypeError, ValueError) on untrusted form input.
     """
     if isinstance(x, bool) or x is None:
         raise ValueError("invalid money value")
-    return int(Decimal(str(x)).to_integral_value(rounding=ROUND_FLOOR))
+    try:
+        return int(Decimal(str(x)).to_integral_value(rounding=ROUND_FLOOR))
+    except InvalidOperation:
+        raise ValueError("invalid money value") from None
 
 
 def fmt_rub(n: int) -> str:
