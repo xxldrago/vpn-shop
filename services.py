@@ -4,6 +4,7 @@ Keeps payment, fulfillment, trial, referral and balance logic in one place so th
 web UI and the bot behave identically.
 """
 import json
+import math
 import secrets
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -156,16 +157,24 @@ def get_user_by_referral_code(code: str) -> dict | None:
 
 # ---------------- Balance ----------------
 
-def get_balance(user_id: str) -> float:
+def get_balance(user_id: str) -> int:
+    """Current wallet balance in whole rubles (transition: REAL rows floor at read)."""
     conn = database.get_db()
     try:
         row = conn.execute("SELECT balance FROM app_users WHERE id = ?", (user_id,)).fetchone()
-        return float(row["balance"] if row else 0)
+        return money.to_rub(row["balance"] if row else 0)
     finally:
         conn.close()
 
 
-def add_balance(conn, user_id: str, amount: float, kind: str, ref_order_id: str = "", note: str = ""):
+def add_balance_int(conn, user_id: str, amount: int, kind: str, ref_order_id: str = "", note: str = ""):
+    """Credit the wallet by an INTEGER amount of rubles (D-01).
+
+    The int guard protects the money invariant: callers must pass
+    money.to_rub() output. A float here is a programming error, not input.
+    """
+    if not isinstance(amount, int):
+        raise TypeError(f"add_balance_int requires int amount, got {type(amount).__name__}")
     conn.execute("UPDATE app_users SET balance = balance + ? WHERE id = ?", (amount, user_id))
     conn.execute(
         "INSERT INTO balance_transactions (user_id, amount, kind, ref_order_id, note, created_at)"
@@ -426,12 +435,12 @@ def confirm_topup(order_id: str) -> bool:
         order = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
         if not order or order["status"] == "paid":
             return False
-        amount = float(order["amount_rub"] or 0)
+        amount = money.to_rub(order["amount_rub"] or 0)
         if amount <= 0:
             conn.execute("UPDATE orders SET status = 'paid', paid_at = ? WHERE id = ?", (now_iso(), order_id))
             conn.commit()
             return True
-        add_balance(conn, order["user_id"], amount, "topup", ref_order_id=order_id, note="Пополнение баланса")
+        add_balance_int(conn, order["user_id"], amount, "topup", ref_order_id=order_id, note="Пополнение баланса")
         conn.execute("UPDATE orders SET status = 'paid', paid_at = ? WHERE id = ?", (now_iso(), order_id))
         conn.commit()
         return True
@@ -447,7 +456,7 @@ async def create_platega_payment(order_id: str, description: str, amount: float)
     pg = get_platega_client()
     try:
         result = await pg.create_payment(
-            amount=round(float(amount), 2),
+            amount=money.to_rub(amount),
             description=description,
             return_url=return_url,
             failed_url=failed_url,
@@ -479,7 +488,7 @@ def refund_order_balance(order_id: str):
         if not order:
             return
         order = dict(order)
-        used = float(order.get("balance_used_rub") or 0)
+        used = money.to_rub(order.get("balance_used_rub") or 0)
         if used <= 0:
             return
         conn.execute(
@@ -566,7 +575,7 @@ def apply_referral(conn, order: dict, app_user: dict):
     referrer_id = app_user.get("referrer_id")
     if not referrer_id or order.get("is_trial"):
         return
-    deposit = float(order.get("amount_rub") or 0)
+    deposit = money.to_rub(order.get("amount_rub") or 0)
     if deposit <= 0:
         return
 
@@ -579,18 +588,18 @@ def apply_referral(conn, order: dict, app_user: dict):
             referee_bonus = get_setting_int("referral_bonus_referee", 100)
             referrer_bonus = get_setting_int("referral_bonus_referrer", 100)
             if referee_bonus > 0:
-                add_balance(conn, app_user["id"], referee_bonus, "referral_bonus",
-                            ref_order_id=order["id"], note="Бонус за первый депозит по реферальной программе")
+                add_balance_int(conn, app_user["id"], referee_bonus, "referral_bonus",
+                                ref_order_id=order["id"], note="Бонус за первый депозит по реферальной программе")
             if referrer_bonus > 0:
-                add_balance(conn, referrer_id, referrer_bonus, "referral_reward",
-                            ref_order_id=order["id"], note="Вознаграждение за приглашение")
+                add_balance_int(conn, referrer_id, referrer_bonus, "referral_reward",
+                                ref_order_id=order["id"], note="Вознаграждение за приглашение")
             conn.execute("UPDATE app_users SET referred_paid = 1 WHERE id = ?", (app_user["id"],))
     else:
         if commission_percent > 0 and deposit > 0:
-            commission = round(deposit * commission_percent / 100.0, 2)
+            commission = math.floor(deposit * commission_percent / 100)
             if commission > 0:
-                add_balance(conn, referrer_id, commission, "referral_commission",
-                            ref_order_id=order["id"], note=f"Комиссия {commission_percent}% от пополнения")
+                add_balance_int(conn, referrer_id, commission, "referral_commission",
+                                ref_order_id=order["id"], note=f"Комиссия {commission_percent}% от пополнения")
 
 
 async def fulfill_order(conn, order: dict):
@@ -714,7 +723,7 @@ async def activate_trial(user_id: str) -> dict:
     try:
         conn.execute(
             "INSERT INTO orders (id, user_id, plan_id, plan_name, amount_rub, is_trial, status, paid_at, expires_at, panel_user_connections, created_at)"
-            " VALUES (?, ?, NULL, ?, 0.0, 1, 'paid', ?, ?, ?, ?)",
+            " VALUES (?, ?, NULL, ?, 0, 1, 'paid', ?, ?, ?, ?)",
             (order_id, user_id, "Тестовая подписка", now_iso(), expires_at,
              json.dumps([c for c in connections if c["config"]], ensure_ascii=False), now_iso()),
         )

@@ -10,6 +10,7 @@ import threading
 import pytest
 
 import database
+import money
 import services
 
 
@@ -219,7 +220,7 @@ def test_no_nested_transaction_error_on_default_conn(test_db):
 # ---------------- Task 3: add_balance_int + get_balance transition window ----------------
 
 def test_add_balance_int_credits_exactly_and_logs(test_db):
-    """add_balance_int credits exactly 500 and inserts an int ledger row."""
+    """add_balance_int credits exactly 500 and inserts a ledger row (int at read)."""
     user = services.create_user("cr", email="", password="")
     conn = database.get_db()
     try:
@@ -228,8 +229,11 @@ def test_add_balance_int_credits_exactly_and_logs(test_db):
     finally:
         conn.close()
     assert _balance(user["id"]) == 500
-    rows = [dict(r) for r in _spend_rows(user["id"]) + _ledger_kind(user["id"], "topup")]
-    assert any(r["amount"] == 500 and isinstance(r["amount"], int) for r in rows)
+    rows = [dict(r) for r in _ledger_kind(user["id"], "topup")]
+    assert len(rows) == 1
+    # Transition window: the stored REAL reads back as 500 (floored) via money.to_rub.
+    assert money.to_rub(rows[0]["amount"]) == 500
+    assert isinstance(money.to_rub(rows[0]["amount"]), int)
 
 
 def test_add_balance_int_rejects_float_input(test_db):
