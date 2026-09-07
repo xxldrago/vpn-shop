@@ -6,6 +6,7 @@ insufficient funds leaves zero residue — no order row, no ledger row.
 """
 import sqlite3
 import threading
+import uuid
 
 import pytest
 
@@ -259,3 +260,123 @@ def test_get_balance_floors_real_at_read(test_db):
     bal = services.get_balance(user["id"])
     assert bal == 250
     assert isinstance(bal, int)
+
+
+# ======================================================================
+# Task 1: refund_order_balance claim-then-effect idempotency (FOUND-03)
+# ======================================================================
+
+def _create_pending_order_with_balance(user_id: str, balance_used: int) -> str:
+    """Create a pending order that used balance, returning the order_id."""
+    order_id = str(uuid.uuid4())
+    conn = database.get_db()
+    try:
+        conn.execute(
+            "INSERT INTO orders (id, user_id, plan_id, plan_name, amount_rub, original_price_rub,"
+            " balance_used_rub, status, created_at)"
+            " VALUES (?, ?, 1, 'Test Plan', 0, ?, ?, 'pending', ?)",
+            (order_id, user_id, balance_used, balance_used, services.now_iso()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return order_id
+
+
+def _create_paid_order(user_id: str) -> str:
+    """Create an already-paid order (no balance used), returning the order_id."""
+    order_id = str(uuid.uuid4())
+    conn = database.get_db()
+    try:
+        conn.execute(
+            "INSERT INTO orders (id, user_id, plan_id, plan_name, amount_rub, original_price_rub,"
+            " balance_used_rub, status, paid_at, created_at)"
+            " VALUES (?, ?, 1, 'Test Plan', 150, 150, 0, 'paid', ?, ?)",
+            (order_id, user_id, services.now_iso(), services.now_iso()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return order_id
+
+
+def test_refund_pending_order_credits_exactly_once(test_db):
+    """Refund of pending order with balance_used_rub=300: wallet +300,
+    one kind='refund' ledger row, order status 'cancelled', balance_used_rub zeroed."""
+    user = _create_funded_user("refund1", 500)
+    order_id = _create_pending_order_with_balance(user["id"], 300)
+
+    result = services.refund_order_balance(order_id)
+
+    assert result is True
+    assert _balance(user["id"]) == 800  # 500 + 300
+    refund_rows = _ledger_kind(user["id"], "refund")
+    assert len(refund_rows) == 1
+    assert refund_rows[0]["amount"] == 300
+    assert refund_rows[0]["ref_order_id"] == order_id
+    # Order should be cancelled and balance_used_rub zeroed
+    conn = database.get_db()
+    try:
+        order = conn.execute("SELECT status, balance_used_rub FROM orders WHERE id = ?", (order_id,)).fetchone()
+        assert order["status"] == "cancelled"
+        assert money.to_rub(order["balance_used_rub"]) == 0
+    finally:
+        conn.close()
+
+
+def test_refund_idempotent_no_double_credit(test_db):
+    """Second refund call on same order: returns False, wallet unchanged, no second refund row."""
+    user = _create_funded_user("refund2", 500)
+    order_id = _create_pending_order_with_balance(user["id"], 300)
+
+    result1 = services.refund_order_balance(order_id)
+    assert result1 is True
+    assert _balance(user["id"]) == 800
+
+    # Second call — idempotent no-op
+    result2 = services.refund_order_balance(order_id)
+    assert result2 is False
+    assert _balance(user["id"]) == 800  # unchanged
+    refund_rows = _ledger_kind(user["id"], "refund")
+    assert len(refund_rows) == 1  # exactly one
+
+
+def test_concurrent_refunds_exactly_one_credit(test_db):
+    """Two threads race refund_order_balance on the same order: exactly one credit, one refund row."""
+    user = _create_funded_user("refund3", 500)
+    order_id = _create_pending_order_with_balance(user["id"], 300)
+    barrier = threading.Barrier(2)
+    results = []
+
+    def attempt():
+        barrier.wait()
+        try:
+            r = services.refund_order_balance(order_id)
+            results.append(r)
+        except Exception:
+            results.append(False)
+
+    threads = [threading.Thread(target=attempt) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # Exactly one should return True
+    assert results.count(True) == 1
+    # Wallet credited exactly once: 500 + 300 = 800
+    assert _balance(user["id"]) == 800
+    refund_rows = _ledger_kind(user["id"], "refund")
+    assert len(refund_rows) == 1
+
+
+def test_refund_paid_order_no_credit(test_db):
+    """Refund of an already-paid order: returns False, no credit."""
+    user = _create_funded_user("refund4", 500)
+    order_id = _create_paid_order(user["id"])
+
+    result = services.refund_order_balance(order_id)
+    assert result is False
+    assert _balance(user["id"]) == 500  # unchanged
+    refund_rows = _ledger_kind(user["id"], "refund")
+    assert len(refund_rows) == 0
