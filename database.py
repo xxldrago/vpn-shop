@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sqlite3
+from contextlib import contextmanager
 
 from config import DATA_DIR, DB_PATH, DEFAULT_SETTINGS
 
@@ -120,6 +121,45 @@ def get_db():
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA busy_timeout = 30000")
     return conn
+
+
+def get_write_db():
+    """Connection for explicit write transactions (isolation_level=None).
+
+    isolation_level=None disables the implicit transaction BEGIN that
+    sqlite3 opens before DML, so an explicit BEGIN IMMEDIATE in tx() can
+    never hit "cannot start a transaction within a transaction".
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 30000")
+    return conn
+
+
+@contextmanager
+def tx(conn=None):
+    """Write transaction: BEGIN IMMEDIATE, commit on success, rollback on error.
+
+    Opens a fresh write connection when conn is None; closes it (and the
+    caller's conn, when provided) in finally. BEGIN IMMEDIATE serializes
+    writers so a guarded `UPDATE ... WHERE balance >= ?` is race-free.
+    """
+    own_conn = False
+    if conn is None:
+        conn = get_write_db()
+        own_conn = True
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        if own_conn:
+            conn.close()
 
 
 def init_db():

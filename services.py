@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 
 import database
+import money
 from panel_client import PanelClient, PanelClientError
 from platega_client import PlategaClient, PlategaClientError
 
@@ -306,41 +307,53 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str =
         raise OrderError(promo_err)
 
     qty = max(1, int(quantity))
-    base_price = round(apply_promo_price(plan["price_rub"], promo), 2)
-    price = round(base_price * qty, 2)
+    unit_price = money.to_rub(plan["price_rub"])
+    base_price = money.apply_promo_price_rub(unit_price, promo)
+    price = money.apply_promo_price_rub(unit_price * qty, promo)
     order_id = str(uuid.uuid4())
 
     method = "platega" if method != "balance" else "balance"
-    balance = get_balance(user_id)
 
     if method == "balance":
-        if balance < price - 0.001:
-            raise OrderError("Недостаточно средств на балансе для оплаты")
-        balance_used = min(balance, price)
-        payable = round(price - balance_used, 2)
-    else:
-        balance_used = 0.0
-        payable = price
-
-    conn = database.get_db()
-    try:
-        conn.execute(
-            "INSERT INTO orders (id, user_id, plan_id, plan_name, promo_code_id, amount_rub, original_price_rub, balance_used_rub, status, created_at, quantity)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
-            (order_id, user_id, plan_id, plan["name"], promo["id"] if promo else None,
-             payable, price, balance_used, now_iso(), qty),
-        )
-        if balance_used > 0:
-            conn.execute("UPDATE app_users SET balance = balance - ? WHERE id = ?", (balance_used, user_id))
+        # Guarded atomic debit: the balance gate lives in the UPDATE's WHERE
+        # clause inside one BEGIN IMMEDIATE transaction — never a separate
+        # read-then-write check (FOUND-02). On insufficient funds the whole
+        # tx rolls back: no order row, no ledger row, balance untouched.
+        with database.tx() as conn:
+            conn.execute(
+                "INSERT INTO orders (id, user_id, plan_id, plan_name, promo_code_id, amount_rub, original_price_rub, balance_used_rub, status, created_at, quantity)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
+                (order_id, user_id, plan_id, plan["name"], promo["id"] if promo else None,
+                 0, price, price, now_iso(), qty),
+            )
+            cur = conn.execute(
+                "UPDATE app_users SET balance = balance - ? WHERE id = ? AND balance >= ?",
+                (price, user_id, price),
+            )
+            if cur.rowcount != 1:
+                raise OrderError("Недостаточно средств на балансе для оплаты")
             conn.execute(
                 "INSERT INTO balance_transactions (user_id, amount, kind, ref_order_id, note, created_at)"
                 " VALUES (?, ?, 'spend', ?, ?, ?)",
-                (user_id, -balance_used, order_id,
+                (user_id, -price, order_id,
                  f"Оплата тарифа «{plan['name']}» ×{qty} с баланса", now_iso()),
             )
-        conn.commit()
-    finally:
-        conn.close()
+        balance_used = price
+        payable = 0
+    else:
+        balance_used = 0
+        payable = price
+        conn = database.get_db()
+        try:
+            conn.execute(
+                "INSERT INTO orders (id, user_id, plan_id, plan_name, promo_code_id, amount_rub, original_price_rub, balance_used_rub, status, created_at, quantity)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
+                (order_id, user_id, plan_id, plan["name"], promo["id"] if promo else None,
+                 payable, price, balance_used, now_iso(), qty),
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     return {
         "id": order_id,
