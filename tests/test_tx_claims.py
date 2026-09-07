@@ -70,6 +70,16 @@ def _spend_rows(user_id):
         conn.close()
 
 
+def _ledger_kind(user_id, kind):
+    conn = database.get_db()
+    try:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM balance_transactions WHERE user_id = ? AND kind = ?", (user_id, kind)
+        ).fetchall()]
+    finally:
+        conn.close()
+
+
 def _order_count(user_id):
     conn = database.get_db()
     try:
@@ -205,3 +215,43 @@ def test_no_nested_transaction_error_on_default_conn(test_db):
     finally:
         legacy.rollback()
         legacy.close()
+
+# ---------------- Task 3: add_balance_int + get_balance transition window ----------------
+
+def test_add_balance_int_credits_exactly_and_logs(test_db):
+    """add_balance_int credits exactly 500 and inserts an int ledger row."""
+    user = services.create_user("cr", email="", password="")
+    conn = database.get_db()
+    try:
+        services.add_balance_int(conn, user["id"], 500, "topup", note="Пополнение баланса")
+        conn.commit()
+    finally:
+        conn.close()
+    assert _balance(user["id"]) == 500
+    rows = [dict(r) for r in _spend_rows(user["id"]) + _ledger_kind(user["id"], "topup")]
+    assert any(r["amount"] == 500 and isinstance(r["amount"], int) for r in rows)
+
+
+def test_add_balance_int_rejects_float_input(test_db):
+    """The helper itself asserts int — a float is a programming error (D-01)."""
+    user = services.create_user("cr2", email="", password="")
+    conn = database.get_db()
+    try:
+        with pytest.raises(TypeError):
+            services.add_balance_int(conn, user["id"], 500.0, "topup")
+    finally:
+        conn.close()
+
+
+def test_get_balance_floors_real_at_read(test_db):
+    """Transition window: seeded REAL 250.5 is floored to 250 (int) at read."""
+    user = services.create_user("cr3", email="", password="")
+    conn = database.get_db()
+    try:
+        conn.execute("UPDATE app_users SET balance = 250.5 WHERE id = ?", (user["id"],))
+        conn.commit()
+    finally:
+        conn.close()
+    bal = services.get_balance(user["id"])
+    assert bal == 250
+    assert isinstance(bal, int)
