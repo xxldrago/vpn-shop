@@ -3,7 +3,6 @@ import os
 import re
 import secrets
 import uuid
-import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional
@@ -46,9 +45,8 @@ templates.env.globals["header_balance"] = _header_balance
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     database.init_db()
-    task = asyncio.create_task(expiry_watcher())
     yield
-    task.cancel()
+    # expiry moved to vpnshop-expiry.timer — enable timers on VPS BEFORE deploying this commit (Pitfall 7)
 
 
 app = FastAPI(title="VPN Shop", lifespan=lifespan)
@@ -1120,66 +1118,6 @@ async def admin_support_ticket_close(request: Request, ticket_id: int):
     finally:
         conn.close()
     return RedirectResponse(url="/admin/support", status_code=303)
-
-
-# ---------------- Expiry watcher ----------------
-
-async def expiry_watcher():
-    while True:
-        try:
-            expiring = []
-            conn = database.get_db()
-            try:
-                rows = conn.execute(
-                    "SELECT DISTINCT user_id FROM orders WHERE status='paid'"
-                    " AND expires_at <= ? AND expires_at IS NOT NULL", (now_iso(),)
-                ).fetchall()
-                expiring = [r["user_id"] for r in rows]
-            finally:
-                conn.close()
-
-            if expiring:
-                panel = get_panel_client()
-                for uid in expiring:
-                    app_user = None
-                    conn = database.get_db()
-                    try:
-                        app_user = conn.execute(
-                            "SELECT * FROM app_users WHERE id = ?", (uid,)
-                        ).fetchone()
-                        # mark all expired orders of this user
-                        conn.execute(
-                            "UPDATE orders SET status='expired' WHERE user_id=? AND status='paid' AND expires_at <= ?",
-                            (uid, now_iso()),
-                        )
-                        conn.commit()
-                    finally:
-                        conn.close()
-                    if app_user:
-                        try:
-                            p_user = await panel.find_user_by_username(app_user["username"])
-                            if p_user:
-                                await panel.update_panel_user(p_user["id"], expiration_date=None)
-                        except Exception:
-                            pass
-
-            # Release discount-balance reserves stuck on abandoned pending orders (>1h old)
-            conn = database.get_db()
-            try:
-                stale = conn.execute(
-                    "SELECT * FROM orders WHERE status = 'pending' AND balance_used_rub > 0"
-                    " AND created_at <= ?", ((utcnow() - timedelta(hours=1)).isoformat(),)
-                ).fetchall()
-                for s in stale:
-                    s = dict(s)
-                    services.refund_order_balance(s["id"])
-                    conn.execute("UPDATE orders SET status = 'cancelled', balance_used_rub = 0 WHERE id = ?", (s["id"],))
-                conn.commit()
-            finally:
-                conn.close()
-        except Exception:
-            pass
-        await asyncio.sleep(3600)
 
 
 if __name__ == "__main__":
