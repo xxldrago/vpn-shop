@@ -134,7 +134,10 @@ def test_reconcile_confirmed_claim_is_exactly_once(test_db, monkeypatch):
         assert conn.execute(
             "SELECT COUNT(*) AS count FROM balance_transactions WHERE ref_order_id = ?",
             (order_id,),
-        ).fetchone()["count"] == 0
+        ).fetchone()["count"] == 1
+        assert conn.execute(
+            "SELECT balance FROM app_users WHERE id = ?", (user["id"],)
+        ).fetchone()["balance"] == 500
     finally:
         conn.close()
     assert len(_job_runs(test_db)) == 2
@@ -167,7 +170,7 @@ def test_dry_run_filter_boundaries_are_write_free(test_db, capsys, monkeypatch):
         test_db,
         user["id"],
         "boundary-stale",
-        age_minutes=30,
+        age_minutes=90,
         transaction_id="txn-stale",
         balance_used=50,
     )

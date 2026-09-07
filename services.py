@@ -511,13 +511,16 @@ def _refund_order_balance_tx(conn, order_id: str) -> bool:
     if not order:
         return False
     used = money.to_rub(order["balance_used_rub"] or 0)
-    if used <= 0:
-        return False
     cur = conn.execute(
         "UPDATE orders SET status = 'cancelled', balance_used_rub = 0"
         " WHERE id = ? AND status = 'pending' AND balance_used_rub > 0",
         (order_id,),
     )
+    if used <= 0:
+        cur = conn.execute(
+            "UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'pending'",
+            (order_id,),
+        )
     if cur.rowcount != 1:
         return False  # already claimed — idempotent no-op
     conn.execute(
@@ -550,11 +553,6 @@ def cancel_pending_order(order_id: str) -> bool:
     so a cancellation can never refund without atomically claiming first.
     """
     with database.tx() as conn:
-        cur = conn.execute(
-            "UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'pending'", (order_id,)
-        )
-        if cur.rowcount != 1:
-            return False
         return _refund_order_balance_tx(conn, order_id)
 
 

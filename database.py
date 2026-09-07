@@ -112,6 +112,14 @@ CREATE TABLE IF NOT EXISTS funnel_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_funnel_user_event ON funnel_events(user_id, event);
+
+CREATE TABLE IF NOT EXISTS job_runs (
+    job_name TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL,
+    ok INTEGER NOT NULL,
+    error TEXT
+);
 """
 
 DEFAULT_PLANS = [
@@ -185,6 +193,11 @@ def init_db():
 
 def _migrate(conn):
     """Add columns that may be missing on databases created by older versions."""
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS job_runs ("
+        "job_name TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT NOT NULL, "
+        "ok INTEGER NOT NULL, error TEXT)"
+    )
     columns = {r["name"] for r in conn.execute("PRAGMA table_info(orders)").fetchall()}
     for col, ddl in (
         ("original_price_rub", "REAL"),
