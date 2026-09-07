@@ -118,10 +118,15 @@ def _brand():
 
 
 def money(amount):
+    if amount is None:
+        return "—"
     try:
-        return f"{float(amount):.2f} ₽"
+        return money_utils.fmt_rub(money_utils.to_rub(amount))
     except (TypeError, ValueError):
         return "—"
+
+
+templates.env.globals["money"] = money
 
 
 def format_dt(value):
@@ -133,33 +138,6 @@ def format_dt(value):
 
 def email_valid(email):
     return re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email or "") is not None
-
-
-# ---- Order / subscription helpers ----
-
-def get_active_subscription(user_id: str) -> Optional[dict]:
-    conn = database.get_db()
-    try:
-        row = conn.execute(
-            "SELECT * FROM orders WHERE user_id = ? AND status = 'paid' AND expires_at IS NOT NULL"
-            " AND expires_at > ? ORDER BY expires_at DESC LIMIT 1",
-            (user_id, now_iso()),
-        ).fetchone()
-        return dict(row) if row else None
-    finally:
-        conn.close()
-
-
-def has_used_trial(user_id: str) -> bool:
-    conn = database.get_db()
-    try:
-        row = conn.execute(
-            "SELECT id FROM orders WHERE user_id = ? AND is_trial = 1 AND status = 'paid' LIMIT 1",
-            (user_id,),
-        ).fetchone()
-        return row is not None
-    finally:
-        conn.close()
 
 
 def find_or_create_local_user(username: str, email: str = "", telegram_id: str = ""):
@@ -180,88 +158,6 @@ def find_or_create_local_user(username: str, email: str = "", telegram_id: str =
         return dict(row)
     finally:
         conn.close()
-
-
-# ---------------- Referral helpers ----------------
-
-REFERRAL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I
-
-
-def generate_referral_code(conn) -> str:
-    """Generate a unique 8-char referral code."""
-    for _ in range(100):
-        code = "".join(secrets.choice(REFERRAL_ALPHABET) for _ in range(8))
-        existing = conn.execute(
-            "SELECT id FROM app_users WHERE referral_code = ?", (code,)
-        ).fetchone()
-        if not existing:
-            return code
-    raise HTTPException(status_code=500, detail="Не удалось сгенерировать реферальный код")
-
-
-def get_user_by_referral_code(conn, code: str):
-    return conn.execute(
-        "SELECT * FROM app_users WHERE referral_code = ?", (code.upper().strip(),)
-    ).fetchone()
-
-
-def get_balance(user_id: str) -> float:
-    conn = database.get_db()
-    try:
-        row = conn.execute("SELECT balance FROM app_users WHERE id = ?", (user_id,)).fetchone()
-        return float(row["balance"] if row else 0)
-    finally:
-        conn.close()
-
-
-def add_balance(conn, user_id: str, amount: float, kind: str, ref_order_id: str = "", note: str = ""):
-    """Credit/credit-debit a user's discount balance and log it."""
-    conn.execute(
-        "UPDATE app_users SET balance = balance + ? WHERE id = ?", (amount, user_id)
-    )
-    conn.execute(
-        "INSERT INTO balance_transactions (user_id, amount, kind, ref_order_id, note, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (user_id, amount, kind, ref_order_id, note, now_iso()),
-    )
-
-
-
-# ---- Panel provisioning ----
-
-async def provision_connections(user_id: str, conn_name_prefix: str):
-    """Create connections for the panel user on every server (all installed protocols).
-
-    Returns a list of connection records (client_id, protocol, server_id, name, config).
-    """
-    panel = get_panel_client()
-    servers = await panel.get_servers_with_protocols(installed_only=True)
-    created = []
-    for serv in servers:
-        for proto in serv["protocols"]:
-            name = f"{conn_name_prefix} {serv['server'].get('name', serv['server_id'])} {proto['display_name']}"
-            try:
-                resp = await panel.add_connection(
-                    server_id=serv["server_id"],
-                    protocol=proto["key"],
-                    name=name,
-                    user_id=user_id,
-                )
-                client_id = resp.get("client_id")
-                config = resp.get("config", "")
-                created.append({
-                    "server_id": serv["server_id"],
-                    "protocol": proto["key"],
-                    "client_id": client_id,
-                    "name": name,
-                    "config": config,
-                    "vpn_link": resp.get("vpn_link", ""),
-                    "vpn_name": resp.get("vpn_name", name),
-                    "vpn_qr_chunks": resp.get("vpn_qr_chunks", []),
-                })
-            except Exception:
-                continue
-    return created
 
 
 # ---------------- Pages: Public ----------------
@@ -344,11 +240,11 @@ async def register(
         if exists:
             return render(request, "register.html", error="Пользователь с таким логином уже существует", status_code=400)
         new_id = str(uuid.uuid4())
-        referral_code = generate_referral_code(conn)
+        referral_code = services.generate_referral_code(conn)
 
         referrer_id = None
         if ref_code:
-            referrer = get_user_by_referral_code(conn, ref_code)
+            referrer = services.get_user_by_referral_code(ref_code)
             if referrer and referrer["id"] != new_id:
                 referrer_id = referrer["id"]
 
@@ -357,6 +253,7 @@ async def register(
             " VALUES (?, ?, ?, 'user', 1, ?, ?, ?, ?)",
             (new_id, username, email, now_iso(), hash_password(password), referral_code, referrer_id),
         )
+        services.log_event(conn, new_id, "registered")
         conn.commit()
     finally:
         conn.close()
@@ -663,7 +560,7 @@ async def fulfill_order(conn, order: dict):
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
     user = require_user(request)
-    subscription = get_active_subscription(user["id"])
+    subscription = services.get_active_subscription(user["id"])
     conn = database.get_db()
     try:
         orders = [dict(r) for r in conn.execute(
@@ -692,7 +589,7 @@ async def dashboard(request: Request):
         except json.JSONDecodeError:
             connections = []
 
-    used_trial = has_used_trial(user["id"])
+    used_trial = services.has_used_trial(user["id"])
     trial_days = database.get_setting("test_subscription_days", "3")
     shop_url = database.get_setting("shop_public_url", "http://127.0.0.1:8080").rstrip("/")
     return render(
