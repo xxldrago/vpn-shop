@@ -5,6 +5,24 @@ from contextlib import contextmanager
 
 from config import DATA_DIR, DB_PATH, DEFAULT_SETTINGS
 
+MONEY_COLUMNS = [
+    ("plans", "price_rub"),
+    ("promo_codes", "discount_amount_rub"),
+    ("orders", "amount_rub"),
+    ("orders", "original_price_rub"),
+    ("orders", "balance_used_rub"),
+    ("app_users", "balance"),
+    ("balance_transactions", "amount"),
+]
+
+TIMESTAMP_COLUMNS = [
+    ("orders", "paid_at"),
+    ("orders", "created_at"),
+    ("orders", "expires_at"),
+    ("balance_transactions", "created_at"),
+    ("app_users", "created_at"),
+]
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS plans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

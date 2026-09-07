@@ -8,6 +8,8 @@ commands and records every non-dry-run attempt in ``job_runs``.
 import argparse
 import asyncio
 import logging
+import os
+import sqlite3
 import sys
 from datetime import timedelta
 
@@ -26,6 +28,144 @@ def get_panel_client():
 
 def get_platega_client():
     return services.get_platega_client()
+
+
+def _migration_path(db_path=None):
+    return os.path.abspath(db_path or os.environ.get("SHOP_DB_PATH") or database.DB_PATH)
+
+
+def _migration_connection(path):
+    conn = sqlite3.connect(path, timeout=30, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 30000")
+    return conn
+
+
+def _guard_migration_path(path, verify_only, dry_run):
+    if verify_only or dry_run or os.environ.get("MIGRATE_MONEY_ALLOW_PRODUCTION") == "1":
+        return
+    if path == os.path.abspath(database.DB_PATH):
+        raise RuntimeError(
+            "refusing full money migration on the configured database; "
+            "set SHOP_DB_PATH to a verified copy or explicitly authorize the maintenance window"
+        )
+
+
+def _table_columns(conn, table):
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def _ensure_backfill_columns(conn):
+    for table, column in database.MONEY_COLUMNS:
+        columns = _table_columns(conn, table)
+        backfill = f"{column}_rub"
+        if backfill not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {backfill} INTEGER")
+        conn.execute(
+            f"UPDATE {table} SET {backfill} = CAST(FLOOR({column}) AS INTEGER) "
+            f"WHERE {column} IS NOT NULL"
+        )
+
+
+def _verify_backfill(conn):
+    report = []
+    for table, column in database.MONEY_COLUMNS:
+        backfill = f"{column}_rub"
+        row = conn.execute(
+            f"SELECT COUNT(*) AS rows, "
+            f"COALESCE(MAX(ABS({column} - {backfill})), 0) AS max_delta, "
+            f"COALESCE(SUM(CAST(FLOOR({column}) AS INTEGER) - {backfill}), 0) AS sum_delta "
+            f"FROM {table} WHERE {column} IS NOT NULL"
+        ).fetchone()
+        item = {
+            "table": table,
+            "column": column,
+            "rows": row["rows"],
+            "max_delta": float(row["max_delta"]),
+            "sum_delta": int(row["sum_delta"]),
+        }
+        report.append(item)
+        if item["max_delta"] > 1 or item["sum_delta"] != 0:
+            raise RuntimeError(f"money migration verification failed: {item}")
+    return report
+
+
+def _timestamp_report(conn):
+    report = []
+    for table, column in database.TIMESTAMP_COLUMNS:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS count FROM {table} "
+            f"WHERE {column} IS NOT NULL AND {column} NOT LIKE '%+00:00' "
+            f"AND {column} NOT LIKE '%Z'"
+        ).fetchone()
+        report.append({"table": table, "column": column, "rows": row["count"]})
+    return report
+
+
+def _print_migration_report(report, timestamp_report, prefix=""):
+    for item in report:
+        print(
+            f"{prefix}{item['table']}.{item['column']}: rows={item['rows']} "
+            f"max_delta={item['max_delta']:g} sum_delta={item['sum_delta']}"
+        )
+    for item in timestamp_report:
+        print(f"{prefix}{item['table']}.{item['column']}: naive_timestamp_rows={item['rows']}")
+
+
+def migrate_money(db_path=None, verify_only=False, dry_run=False):
+    """Rehearse or execute the one-time REAL-to-INTEGER money migration."""
+    if verify_only and dry_run:
+        raise ValueError("--verify-only and --dry-run are mutually exclusive")
+    path = _migration_path(db_path)
+    _guard_migration_path(path, verify_only, dry_run)
+    conn = _migration_connection(path)
+    try:
+        if dry_run:
+            print("migrate-money dry-run: no changes will be written")
+            for table, column in database.MONEY_COLUMNS:
+                count = conn.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE {column} IS NOT NULL"
+                ).fetchone()[0]
+                print(f"  ADD {table}.{column}_rub INTEGER; affected_rows={count}")
+            for table, column in database.TIMESTAMP_COLUMNS:
+                count = conn.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE {column} IS NOT NULL AND "
+                    f"{column} NOT LIKE '%+00:00' AND {column} NOT LIKE '%Z'"
+                ).fetchone()[0]
+                print(f"  NORMALIZE {table}.{column}; affected_rows={count}")
+            return
+
+        conn.execute("BEGIN IMMEDIATE")
+        _ensure_backfill_columns(conn)
+        report = _verify_backfill(conn)
+        timestamp_report = _timestamp_report(conn)
+        _print_migration_report(report, timestamp_report, prefix="verify: ")
+        if verify_only:
+            conn.commit()
+            return report
+
+        for table, column in database.TIMESTAMP_COLUMNS:
+            conn.execute(
+                f"UPDATE {table} SET {column} = {column} || '+00:00' "
+                f"WHERE {column} IS NOT NULL AND {column} NOT LIKE '%+00:00' "
+                f"AND {column} NOT LIKE '%Z'"
+            )
+
+        for table in dict.fromkeys(table for table, _ in database.MONEY_COLUMNS):
+            table_columns = [(t, c) for t, c in database.MONEY_COLUMNS if t == table]
+            for _, column in table_columns:
+                conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+            for _, column in table_columns:
+                conn.execute(f"ALTER TABLE {table} RENAME COLUMN {column}_rub TO {column}")
+        conn.commit()
+        print("migrate-money: full migration committed")
+        return report
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def _record_job_run(job_name, started_at, ok, error=None):
@@ -182,21 +322,21 @@ async def run_reconcile(dry_run=False):
         await _reconcile_order(order)
 
 
-async def _run_subcommand(job_name, dry_run):
+async def _run_subcommand(job_name, dry_run, verify_only=False):
     if job_name == "expiry":
         await run_expiry(dry_run=dry_run)
     elif job_name == "reconcile":
         await run_reconcile(dry_run=dry_run)
     elif job_name == "migrate-money":
-        print("reserved — implemented in plan 07")
+        migrate_money(verify_only=verify_only, dry_run=dry_run)
     else:
         raise ValueError(f"unknown job: {job_name}")
 
 
-def run_job(job_name, dry_run=False):
+def run_job(job_name, dry_run=False, verify_only=False):
     started_at = services.now_iso()
     try:
-        asyncio.run(_run_subcommand(job_name, dry_run))
+        asyncio.run(_run_subcommand(job_name, dry_run, verify_only=verify_only))
     except Exception as exc:
         logger.error("job %s failed: %s", job_name, exc, exc_info=True)
         if not dry_run:
@@ -211,8 +351,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="vpn-shop scheduled jobs")
     parser.add_argument("job", choices=("expiry", "reconcile", "migrate-money"))
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--verify-only", action="store_true")
     args = parser.parse_args(argv)
-    return run_job(args.job, dry_run=args.dry_run)
+    return run_job(args.job, dry_run=args.dry_run, verify_only=args.verify_only)
 
 
 if __name__ == "__main__":
