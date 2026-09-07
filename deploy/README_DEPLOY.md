@@ -213,3 +213,48 @@ sudo docker compose -f deploy/docker-compose.yml up -d --build
 
 После разворачивания — протестируем по очереди: покупка, промокоды, тестовая
 подписка, рефералка, баланс, тикеты, QR/конфиги, Telegram-бот, уведомления.
+
+## Scheduled jobs rollout
+
+Expiry and payment reconciliation run as systemd one-shot jobs inside the
+`shop` container. Register and verify the timers **before** deploying the
+commit that removes the old in-process expiry watcher:
+
+1. Reload systemd and enable both timers:
+
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now vpnshop-expiry.timer vpnshop-reconcile.timer
+   ```
+
+2. Verify that both timers are scheduled:
+
+   ```bash
+   systemctl list-timers --all | grep vpnshop
+   ```
+
+   The output must show `vpnshop-expiry.timer` and `vpnshop-reconcile.timer`.
+
+3. Confirm a completed expiry run and its persistent `job_runs` record:
+
+   ```bash
+   journalctl -u vpnshop-expiry.service
+   sudo docker compose -f /opt/vpn-shop/deploy/docker-compose.yml exec -T shop \
+     python -c "import database; c=database.get_db(); print(c.execute('SELECT job_name, ok, error FROM job_runs ORDER BY finished_at DESC LIMIT 1').fetchone()); c.close()"
+   ```
+
+   The service should finish successfully and the latest row should have
+   `ok=1` (or a non-empty `error` plus a non-zero service exit if it failed).
+
+4. Only after the timers are visible and a run is confirmed, deploy the
+   commit that removes the in-process watcher from `app.py`. This ordering
+   prevents an expiry gap during rollout.
+
+5. Recovery is non-destructive: disable the timers, redeploy the previous
+   image, and the previous image's watcher will resume:
+
+   ```bash
+   sudo systemctl disable --now vpnshop-expiry.timer vpnshop-reconcile.timer
+   ```
+
+   Existing `job_runs` rows are retained and do not alter orders or balances.
