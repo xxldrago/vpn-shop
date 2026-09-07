@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="auth-card glass">
-  <h2 style="margin-top:0;">Вход</h2>
+<div class="auth-card">
+  <h2 class="page-title" style="margin:0 0 8px;">Вход</h2>
   <p class="muted mb-2">Войдите, чтобы получить доступ к личному кабинету.</p>
   {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
   <form method="post" action="/login">
@@ -16,7 +16,7 @@
     <button class="btn btn-primary btn-block" type="submit">Войти</button>
   </form>
   <div class="center muted mt-2">
-    Нет аккаунта? <a href="/register" style="color:var(--primary-2);">Зарегистрироваться</a>
+    Нет аккаунта? <a href="/register" style="color:var(--accent);">Зарегистрироваться</a>
   </div>
 </div>
 {% endblock %}

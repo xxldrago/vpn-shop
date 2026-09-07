@@ -94,10 +94,10 @@
 
 {% if referral_enabled and referral_code %}
 <div class="section-title">Реферальная программа</div>
-<div class="card glass">
+<div class="card">
   <div class="card-sub mb-1">Приглашайте друзей и получайте бонусы на баланс. За каждого первого клиента — вознаграждение, а за каждое последующее пополнение — процент комиссии.</div>
   <div class="actions" style="flex-wrap:wrap; gap:8px; align-items:center;">
-    <input class="input" readonly value="{{ referral_link }}" id="reflink" style="flex:1; min-width:220px;">
+    <input class="form-control" readonly value="{{ referral_link }}" id="reflink" style="flex:1; min-width:220px;">
     <button class="btn btn-primary btn-sm" onclick="copyTextV2('reflink','Ссылка скопирована')">Копировать ссылку</button>
   </div>
   <div class="card-sub mt-1">Ваш код: <strong>{{ referral_code }}</strong> · Приглашено: <strong>{{ referred_paid_count }}</strong></div>
@@ -135,7 +135,6 @@ document.querySelectorAll('.qty-input').forEach(function(input) {
     var basePrice = parseFloat(priceEl.dataset.basePrice) || 0;
     var total = basePrice * qty;
     priceEl.innerHTML = total.toFixed(0) + ' <small>₽</small>';
-    // Update hidden input in form
     var hidden = card.querySelector('.qty-hidden');
     if (hidden) hidden.value = qty;
   });

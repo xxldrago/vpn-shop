@@ -5,7 +5,7 @@
 
 <div class="card stat mb-2" style="max-width:400px;">
   <div class="stat-label">Мой баланс</div>
-  <div class="stat-value" style="color:var(--success,#36b37e); font-size:2rem;">{{ "%.2f"|format(balance) }} ₽</div>
+  <div class="stat-value" style="color:var(--success); font-size:2rem;">{{ "%.2f"|format(balance) }} ₽</div>
   <div class="card-sub">Можно оплатить подписку полностью с баланса или пополнить его картой.</div>
 </div>
 
@@ -15,15 +15,15 @@
 <div class="card" style="max-width:400px;">
   <form method="post" action="/balance/topup">
     <label class="lbl">Сумма пополнения, ₽</label>
-    <input type="number" name="amount" step="0.01" min="1" placeholder="Например: 300" required class="input" />
-    <button type="submit" class="btn btn-primary btn-block mt-2">💳 Пополнить через Platega</button>
+    <input type="number" name="amount" step="0.01" min="1" placeholder="Например: 300" required class="form-control" />
+    <button type="submit" class="btn btn-primary btn-block mt-2">Пополнить через Platega</button>
   </form>
 </div>
 
 <div class="section-title">История операций</div>
 {% if transactions %}
 <div class="card">
-  <table class="table">
+  <table>
     <thead>
       <tr>
         <th>Дата</th>
@@ -36,7 +36,7 @@
       <tr>
         <td>{{ (t.created_at or '')[:16].replace('T',' ') }}</td>
         <td>{{ t.note or t.kind }}</td>
-        <td style="text-align:right; {% if t.amount >= 0 %}color:var(--success,#36b37e);{% else %}color:var(--danger,#e5533b);{% endif %}">
+        <td style="text-align:right; {% if t.amount >= 0 %}color:var(--success);{% else %}color:var(--danger);{% endif %}">
           {{ "+" if t.amount >= 0 else "" }}{{ "%.2f"|format(t.amount) }} ₽
         </td>
       </tr>
