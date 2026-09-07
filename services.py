@@ -480,41 +480,65 @@ async def create_platega_payment(order_id: str, description: str, amount: float)
     return payment_url
 
 
-def refund_order_balance(order_id: str):
-    """Refund the discount balance reserved for a pending order."""
-    conn = database.get_db()
-    try:
-        order = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
-        if not order:
-            return
-        order = dict(order)
-        used = money.to_rub(order.get("balance_used_rub") or 0)
-        if used <= 0:
-            return
-        conn.execute(
-            "UPDATE app_users SET balance = balance + ? WHERE id = ?", (used, order["user_id"])
-        )
-        conn.execute(
-            "INSERT INTO balance_transactions (user_id, amount, kind, ref_order_id, note, created_at)"
-            " VALUES (?, ?, 'refund', ?, 'Возврат резерва по неподтверждённому заказу', ?)",
-            (order["user_id"], used, order_id, now_iso()),
-        )
-        conn.execute("DELETE FROM balance_transactions WHERE ref_order_id = ? AND kind = 'spend'",
-                     (order_id,))
-        conn.commit()
-    finally:
-        conn.close()
+def _refund_order_balance_tx(conn, order_id: str) -> bool:
+    """Claim-then-effect refund inside an open transaction (FOUND-03 / D-09).
+
+    SELECTs balance_used_rub BEFORE the zeroing UPDATE (P1 ordering detail
+    — pitfall 6), then claims via a guarded UPDATE whose rowcount == 1 gates
+    the wallet credit + ledger INSERT. Replays/races hit rowcount == 0 and
+    return False with zero effects — idempotent by construction.
+    """
+    order = conn.execute(
+        "SELECT user_id, balance_used_rub FROM orders WHERE id = ?", (order_id,)
+    ).fetchone()
+    if not order:
+        return False
+    used = money.to_rub(order["balance_used_rub"] or 0)
+    if used <= 0:
+        return False
+    cur = conn.execute(
+        "UPDATE orders SET status = 'cancelled', balance_used_rub = 0"
+        " WHERE id = ? AND status = 'pending' AND balance_used_rub > 0",
+        (order_id,),
+    )
+    if cur.rowcount != 1:
+        return False  # already claimed — idempotent no-op
+    conn.execute(
+        "UPDATE app_users SET balance = balance + ? WHERE id = ?", (used, order["user_id"])
+    )
+    conn.execute(
+        "INSERT INTO balance_transactions (user_id, amount, kind, ref_order_id, note, created_at)"
+        " VALUES (?, ?, 'refund', ?, 'Возврат резерва по неподтверждённому заказу', ?)",
+        (order["user_id"], used, order_id, now_iso()),
+    )
+    return True
 
 
-def cancel_pending_order(order_id: str):
-    """Cancel a pending order and refund its balance reservation."""
-    conn = database.get_db()
-    try:
-        conn.execute("UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'pending'", (order_id,))
-        conn.commit()
-    finally:
-        conn.close()
-    refund_order_balance(order_id)
+def refund_order_balance(order_id: str) -> bool:
+    """Refund the discount balance reserved for a pending order.
+
+    Claim-then-effect on ONE transaction: SELECT the reserved value before
+    zeroing it, then an UPDATE guarded by status='pending' AND
+    balance_used_rub > 0 whose rowcount gates the credit. Returns True if a
+    credit happened, False if nothing to refund (idempotent no-op on replay).
+    """
+    with database.tx() as conn:
+        return _refund_order_balance_tx(conn, order_id)
+
+
+def cancel_pending_order(order_id: str) -> bool:
+    """Cancel a pending order and refund its balance reservation in one tx.
+
+    Claim + credit in the SAME transaction (no second-connection refund),
+    so a cancellation can never refund without atomically claiming first.
+    """
+    with database.tx() as conn:
+        cur = conn.execute(
+            "UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = 'pending'", (order_id,)
+        )
+        if cur.rowcount != 1:
+            return False
+        return _refund_order_balance_tx(conn, order_id)
 
 
 # ---------------- Panel provisioning ----------------
