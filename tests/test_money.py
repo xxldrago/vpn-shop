@@ -81,6 +81,7 @@ def test_fmt_rub_small_amount():
 # ---------------- Services level: Task 2 integer quote/settings/topup ----------------
 import database
 import services
+import bot
 
 
 def _plan_id_by_price(price) -> int:
@@ -151,6 +152,10 @@ def test_create_topup_order_integer_amount(test_db):
     order = services.create_topup_order(user["id"], "300")
     assert order["amount_rub"] == 300
     assert isinstance(order["amount_rub"], int)
+
+
+def test_bot_money_renderer_matches_fmt_rub():
+    assert bot.money(21600) == money.fmt_rub(21600) == "21 600 ₽"
 
 
 def test_no_round_in_money_paths():

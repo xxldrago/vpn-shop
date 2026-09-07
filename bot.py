@@ -27,6 +27,7 @@ from aiogram.types import (
 )
 
 import database
+from money import fmt_rub, to_rub
 import services
 
 logging.basicConfig(level=logging.INFO)
@@ -109,7 +110,7 @@ def main_menu():
 
 
 def money(value) -> str:
-    return f"{value:,.2f}".replace(",", " ").replace(".", ",") + " ₽"
+    return fmt_rub(to_rub(value)) if value is not None else "—"
 
 
 def resolve_user(telegram_id) -> dict | None:
