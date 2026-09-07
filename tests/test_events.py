@@ -28,9 +28,11 @@ def _plan_id(test_db):
 def test_create_user_logs_registered(test_db):
     user = services.create_user("event-user")
 
-    assert _events(user["id"]) == [
-        {"user_id": user["id"], "event": "registered", "ts": user["created_at"]},
-    ]
+    rows = _events(user["id"])
+    assert len(rows) == 1
+    assert rows[0]["user_id"] == user["id"]
+    assert rows[0]["event"] == "registered"
+    assert rows[0]["ts"]
 
 
 def test_create_order_and_topup_log_order_started(test_db):

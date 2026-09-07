@@ -30,6 +30,14 @@ def utcnow():
     return now()
 
 
+def log_event(conn, user_id: str, event: str):
+    """Record a funnel event on the caller's existing transaction connection."""
+    conn.execute(
+        "INSERT INTO funnel_events (user_id, event, ts) VALUES (?, ?, ?)",
+        (user_id, event, now_iso()),
+    )
+
+
 def get_panel_client():
     return PanelClient(
         database.get_setting("panel_url", "http://127.0.0.1:5000"),
@@ -127,6 +135,7 @@ def create_user(username: str, email: str = "", password: str = "") -> dict:
             " VALUES (?, ?, ?, '', 'user', 1, ?, ?, ?)",
             (new_id, username.strip(), email, now_iso(), pwd, referral_code),
         )
+        log_event(conn, new_id, "registered")
         conn.commit()
         row = conn.execute("SELECT * FROM app_users WHERE id = ?", (new_id,)).fetchone()
         return dict(row)
@@ -348,8 +357,9 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str =
                 "INSERT INTO balance_transactions (user_id, amount, kind, ref_order_id, note, created_at)"
                 " VALUES (?, ?, 'spend', ?, ?, ?)",
                 (user_id, -price, order_id,
-                 f"Оплата тарифа «{plan['name']}» ×{qty} с баланса", now_iso()),
+                  f"Оплата тарифа «{plan['name']}» ×{qty} с баланса", now_iso()),
             )
+            log_event(conn, user_id, "order_started")
         balance_used = price
         payable = 0
     else:
@@ -363,6 +373,7 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str =
                 (order_id, user_id, plan_id, plan["name"], promo["id"] if promo else None,
                  payable, price, balance_used, now_iso(), qty),
             )
+            log_event(conn, user_id, "order_started")
             conn.commit()
         finally:
             conn.close()
@@ -422,6 +433,7 @@ def create_topup_order(user_id: str, amount) -> dict:
             " VALUES (?, ?, NULL, 'Пополнение баланса', ?, ?, 0, 'pending', ?)",
             (order_id, user_id, amount, amount, now_iso()),
         )
+        log_event(conn, user_id, "order_started")
         conn.commit()
     finally:
         conn.close()
@@ -449,6 +461,7 @@ def confirm_topup(order_id: str) -> bool:
         if amount > 0:
             add_balance_int(conn, order["user_id"], amount, "topup",
                             ref_order_id=order_id, note="Пополнение баланса")
+        log_event(conn, order["user_id"], "topup_paid")
         return True
 
 
@@ -758,6 +771,7 @@ async def fulfill_order(conn, order: dict):
             return False
         claimed = tx_conn.execute("SELECT * FROM orders WHERE id = ?", (order["id"],)).fetchone()
         order = dict(claimed)
+        log_event(tx_conn, order["user_id"], "order_paid")
         claim_apply_referral(tx_conn, order)
     await _fulfill_order_side_effects(conn, order)
     return True

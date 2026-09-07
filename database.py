@@ -103,6 +103,15 @@ CREATE TABLE IF NOT EXISTS balance_transactions (
     note TEXT,
     created_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS funnel_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    event TEXT NOT NULL,
+    ts TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_funnel_user_event ON funnel_events(user_id, event);
 """
 
 DEFAULT_PLANS = [

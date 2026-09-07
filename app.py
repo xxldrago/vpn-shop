@@ -639,6 +639,9 @@ async def platega_callback(request: Request):
                     ref_order_id=claimed_order["id"],
                     note="Пополнение баланса",
                 )
+                services.log_event(conn, claimed_order["user_id"], "topup_paid")
+            else:
+                services.log_event(conn, claimed_order["user_id"], "order_paid")
             services.claim_apply_referral(conn, claimed_order)
         if claimed_order.get("plan_id") is not None:
             await services.fulfill_order_side_effects(claimed_order)
