@@ -152,7 +152,12 @@ def migrate_money(db_path=None, verify_only=False, dry_run=False):
         timestamp_report = _timestamp_report(conn)
         _print_migration_report(report, timestamp_report, prefix="verify: ")
         if verify_only:
-            conn.commit()
+            # A rehearsal on the live configured DB must be read-only. Explicit
+            # copy paths retain the backfill columns so operators can inspect them.
+            if path == os.path.abspath(CONFIGURED_DB_PATH):
+                conn.rollback()
+            else:
+                conn.commit()
             return report
 
         for table, column in database.TIMESTAMP_COLUMNS:
@@ -225,18 +230,29 @@ async def run_expiry(dry_run=False):
         return
 
     now = services.now_iso()
-    expired_users = set()
-    with database.tx() as conn:
-        for order in expired:
-            claim = conn.execute(
-                "UPDATE orders SET status = 'expired' WHERE id = ? AND status = 'paid' "
-                "AND expires_at IS NOT NULL AND expires_at <= ?",
-                (order["id"], now),
-            )
-            if claim.rowcount == 1:
-                expired_users.add(order["user_id"])
+    panel = get_panel_client()
+    users_to_disable = set()
+    for order in expired:
+        conn = database.get_db()
+        try:
+            active = conn.execute(
+                "SELECT 1 FROM orders WHERE user_id = ? AND status = 'paid' "
+                "AND expires_at IS NOT NULL AND expires_at > ? LIMIT 1",
+                (order["user_id"], now),
+            ).fetchone()
+            if active:
+                with database.tx() as tx_conn:
+                    tx_conn.execute(
+                        "UPDATE orders SET status = 'expired' WHERE id = ? AND status = 'paid' "
+                        "AND expires_at IS NOT NULL AND expires_at <= ?",
+                        (order["id"], now),
+                    )
+                continue
+            users_to_disable.add(order["user_id"])
+        finally:
+            conn.close()
 
-    if expired_users:
+    if users_to_disable:
         panel = get_panel_client()
         conn = database.get_db()
         try:
@@ -244,14 +260,14 @@ async def run_expiry(dry_run=False):
                 row["id"]: dict(row)
                 for row in conn.execute(
                     "SELECT id, username FROM app_users WHERE id IN ({})".format(
-                        ",".join("?" for _ in expired_users)
+                        ",".join("?" for _ in users_to_disable)
                     ),
-                    tuple(expired_users),
+                    tuple(users_to_disable),
                 ).fetchall()
             }
         finally:
             conn.close()
-        for user_id in expired_users:
+        for user_id in users_to_disable:
             app_user = users.get(user_id)
             if not app_user:
                 continue
@@ -259,6 +275,12 @@ async def run_expiry(dry_run=False):
                 panel_user = await panel.find_user_by_username(app_user["username"])
                 if panel_user:
                     await panel.update_panel_user(panel_user["id"], expiration_date=None)
+                with database.tx() as tx_conn:
+                    tx_conn.execute(
+                        "UPDATE orders SET status = 'expired' WHERE user_id = ? AND status = 'paid' "
+                        "AND expires_at IS NOT NULL AND expires_at <= ?",
+                        (user_id, now),
+                    )
             except PanelClientError as exc:
                 logger.error("expiry: panel disable failed for user %s: %s", user_id, exc)
 
@@ -271,9 +293,11 @@ def _reconcile_plan():
     conn = database.get_db()
     try:
         return [dict(row) for row in conn.execute(
-            "SELECT * FROM orders WHERE status = 'pending' "
-            "AND created_at <= ? AND platega_transaction_id IS NOT NULL "
-            "AND platega_transaction_id != '' ORDER BY created_at, id",
+            "SELECT * FROM orders WHERE "
+            "((status = 'pending' AND created_at <= ? AND platega_transaction_id IS NOT NULL "
+            "AND platega_transaction_id != '') OR "
+            "(status = 'paid' AND plan_id IS NOT NULL AND provisioning_error IS NOT NULL)) "
+            "ORDER BY created_at, id",
             (cutoff,),
         ).fetchall()]
     finally:
@@ -281,6 +305,9 @@ def _reconcile_plan():
 
 
 async def _reconcile_order(order):
+    if order["status"] == "paid":
+        await services.fulfill_order_side_effects(order)
+        return
     status_response = await get_platega_client().get_payment_status(
         order["platega_transaction_id"]
     )
@@ -316,6 +343,7 @@ async def _reconcile_order(order):
             services.log_event(conn, claimed_order["user_id"], "topup_paid")
         else:
             services.log_event(conn, claimed_order["user_id"], "order_paid")
+        services.claim_promo_usage(conn, claimed_order)
         services.claim_apply_referral(conn, claimed_order)
 
     if claimed_order["plan_id"] is not None:

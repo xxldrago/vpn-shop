@@ -65,7 +65,8 @@ def get_setting_bool(key, default=True):
 
 def get_setting_float(key, default):
     try:
-        return float(database.get_setting(key, default) or default)
+        value = database.get_setting(key, default)
+        return float(default if value is None or value == "" else value)
     except (TypeError, ValueError):
         return default
 
@@ -73,7 +74,8 @@ def get_setting_float(key, default):
 def get_setting_int(key, default):
     """Read an integer setting from the DB (whole rubles per D-01/D-02)."""
     try:
-        return money.to_rub(database.get_setting(key, default) or default)
+        value = database.get_setting(key, default)
+        return money.to_rub(default if value is None or value == "" else value)
     except (TypeError, ValueError):
         return default
 
@@ -687,6 +689,9 @@ def apply_referral(conn, order: dict, app_user: dict):
 
 async def _fulfill_order_side_effects(conn, order: dict):
     """Provision a previously claimed paid order after its claim commits."""
+    current = conn.execute("SELECT * FROM orders WHERE id = ?", (order["id"],)).fetchone()
+    if current:
+        order = dict(current)
     app_user_row = conn.execute("SELECT * FROM app_users WHERE id = ?", (order["user_id"],)).fetchone()
     if not app_user_row:
         app_user_row = conn.execute("SELECT * FROM app_users WHERE username = ?", (order["user_id"],)).fetchone()
@@ -703,15 +708,25 @@ async def _fulfill_order_side_effects(conn, order: dict):
     days = plan["duration_days"] if plan else 0
 
     provisioning_error = ""
+    existing_connections = []
+    try:
+        existing_connections = json.loads(order.get("panel_user_connections") or "[]")
+    except json.JSONDecodeError:
+        existing_connections = []
     try:
         panel_user = await ensure_panel_user(app_user)
-        connections = await provision_connections(panel_user["id"], app_user["username"])
+        connections = existing_connections or await provision_connections(
+            panel_user["id"], app_user["username"]
+        )
+        if not connections:
+            raise RuntimeError("Панель не выдала VPN-конфигурации")
     except Exception as e:
         panel_user = None
         connections = []
         provisioning_error = str(e)
 
-    if panel_user and plan and days:
+    expires_at = order.get("expires_at")
+    if panel_user and plan and days and not expires_at:
         # Renewal: if the user already has an active subscription, extend from
         # its current expiry (or now, whichever is later) instead of starting fresh.
         active = conn.execute(
@@ -733,7 +748,8 @@ async def _fulfill_order_side_effects(conn, order: dict):
             await panel.update_panel_user(panel_user["id"], expiration_date=expires_at)
         except Exception as e:
             provisioning_error = (provisioning_error + " | " if provisioning_error else "") + f"expiration update: {e}"
-    else:
+            expires_at = None
+    elif not expires_at:
         expires_at = None
 
     with_configs = [c for c in connections if c["config"]]
@@ -741,11 +757,9 @@ async def _fulfill_order_side_effects(conn, order: dict):
         "UPDATE orders SET expires_at = ?, panel_user_connections = ?,"
         " panel_user_created = ?, provisioning_error = ? WHERE id = ?",
         (expires_at, json.dumps(with_configs, ensure_ascii=False),
-         1 if panel_user else 0, provisioning_error or None, order["id"]),
+         1 if panel_user or order.get("panel_user_created") else 0,
+         provisioning_error or None, order["id"]),
     )
-    if order["promo_code_id"]:
-        conn.execute("UPDATE promo_codes SET used_count = used_count + 1 WHERE id = ?",
-                     (order["promo_code_id"],))
     conn.commit()
 
 
@@ -756,6 +770,15 @@ async def fulfill_order_side_effects(order: dict):
         await _fulfill_order_side_effects(conn, order)
     finally:
         conn.close()
+
+
+def claim_promo_usage(conn, order: dict):
+    """Count a promo exactly once when the payment claim wins."""
+    if order.get("promo_code_id"):
+        conn.execute(
+            "UPDATE promo_codes SET used_count = used_count + 1 WHERE id = ?",
+            (order["promo_code_id"],),
+        )
 
 
 async def fulfill_order(conn, order: dict):
@@ -770,6 +793,7 @@ async def fulfill_order(conn, order: dict):
         claimed = tx_conn.execute("SELECT * FROM orders WHERE id = ?", (order["id"],)).fetchone()
         order = dict(claimed)
         log_event(tx_conn, order["user_id"], "order_paid")
+        claim_promo_usage(tx_conn, order)
         claim_apply_referral(tx_conn, order)
     await _fulfill_order_side_effects(conn, order)
     return True

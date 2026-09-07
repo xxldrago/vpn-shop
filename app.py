@@ -1,4 +1,5 @@
 import json
+import hmac
 import os
 import re
 import secrets
@@ -488,8 +489,12 @@ async def platega_callback(request: Request):
     test_mid = database.get_setting("platega_test_merchant_id", "")
     test_secret = database.get_setting("platega_test_secret", "")
     valid = (
-        (merchant_id == expected_mid and secret == expected_secret)
-        or (test_mid and test_secret and merchant_id == test_mid and secret == test_secret)
+        (bool(expected_mid and expected_secret)
+         and hmac.compare_digest(merchant_id or "", expected_mid)
+         and hmac.compare_digest(secret or "", expected_secret or ""))
+        or (bool(test_mid and test_secret)
+            and hmac.compare_digest(merchant_id or "", test_mid)
+            and hmac.compare_digest(secret or "", test_secret))
     )
     if not valid:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
@@ -521,23 +526,30 @@ async def platega_callback(request: Request):
                 (now_iso(), order["id"]),
             )
             if claim.rowcount != 1:
-                return Response(status_code=200)
-            claimed_order = dict(
-                conn.execute("SELECT * FROM orders WHERE id = ?", (order["id"],)).fetchone()
-            )
-            if claimed_order.get("plan_id") is None:
-                services.add_balance_int(
-                    conn,
-                    claimed_order["user_id"],
-                    money_utils.to_rub(claimed_order["amount_rub"] or 0),
-                    "topup",
-                    ref_order_id=claimed_order["id"],
-                    note="Пополнение баланса",
-                )
-                services.log_event(conn, claimed_order["user_id"], "topup_paid")
+                existing = conn.execute(
+                    "SELECT * FROM orders WHERE id = ?", (order["id"],)
+                ).fetchone()
+                if not existing or existing["status"] != "paid" or not existing["provisioning_error"]:
+                    return Response(status_code=200)
+                claimed_order = dict(existing)
             else:
-                services.log_event(conn, claimed_order["user_id"], "order_paid")
-            services.claim_apply_referral(conn, claimed_order)
+                claimed_order = dict(
+                    conn.execute("SELECT * FROM orders WHERE id = ?", (order["id"],)).fetchone()
+                )
+                if claimed_order.get("plan_id") is None:
+                    services.add_balance_int(
+                        conn,
+                        claimed_order["user_id"],
+                        money_utils.to_rub(claimed_order["amount_rub"] or 0),
+                        "topup",
+                        ref_order_id=claimed_order["id"],
+                        note="Пополнение баланса",
+                    )
+                    services.log_event(conn, claimed_order["user_id"], "topup_paid")
+                else:
+                    services.log_event(conn, claimed_order["user_id"], "order_paid")
+                services.claim_promo_usage(conn, claimed_order)
+                services.claim_apply_referral(conn, claimed_order)
         if claimed_order.get("plan_id") is not None:
             await services.fulfill_order_side_effects(claimed_order)
     elif status == "CANCELED":
@@ -722,8 +734,12 @@ async def delete_order(request: Request, order_id: str):
             return JSONResponse({"error": "Заказ не найден"}, status_code=404)
         if order["status"] == 'paid':
             return JSONResponse({"error": "Нельзя удалить оплаченный заказ"}, status_code=400)
-        conn.execute("DELETE FROM orders WHERE id = ?", (order_id,))
-        conn.commit()
+        if order["status"] == "pending":
+            if not services.cancel_pending_order(order_id):
+                return JSONResponse({"error": "Заказ уже обрабатывается"}, status_code=409)
+        else:
+            conn.execute("DELETE FROM orders WHERE id = ?", (order_id,))
+            conn.commit()
     finally:
         conn.close()
     return JSONResponse({"ok": True})
@@ -872,6 +888,9 @@ async def admin_plans_add(
     duration_days: int = Form(...),
 ):
     require_admin(request)
+    price_rub = money_utils.to_rub(price_rub)
+    if price_rub < 0:
+        return JSONResponse({"error": "Цена не может быть отрицательной"}, status_code=400)
     conn = database.get_db()
     try:
         max_sort = conn.execute("SELECT COALESCE(MAX(sort_order),0) AS m FROM plans").fetchone()["m"]
@@ -896,6 +915,9 @@ async def admin_plans_update(
     is_active: int = Form(1),
 ):
     require_admin(request)
+    price_rub = money_utils.to_rub(price_rub)
+    if price_rub < 0:
+        return JSONResponse({"error": "Цена не может быть отрицательной"}, status_code=400)
     conn = database.get_db()
     try:
         conn.execute(
@@ -945,6 +967,9 @@ async def admin_promos_add(
     code = code.strip().upper()
     if not code:
         return JSONResponse({"error": "Введите код"}, status_code=400)
+    discount_amount_rub = money_utils.to_rub(discount_amount_rub)
+    if discount_amount_rub < 0:
+        return JSONResponse({"error": "Скидка не может быть отрицательной"}, status_code=400)
     conn = database.get_db()
     try:
         exists = conn.execute("SELECT id FROM promo_codes WHERE code = ?", (code,)).fetchone()

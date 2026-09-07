@@ -44,7 +44,7 @@ def apply_promo_price_rub(base_price: int, promo: dict | None) -> int:
     price = base_price
     if promo:
         if promo.get("discount_percent"):
-            price = math.floor(base_price * (100 - promo["discount_percent"]) / 100)
+            price = base_price * (100 - int(promo["discount_percent"])) // 100
         elif promo.get("discount_amount_rub"):
             price = max(0, base_price - to_rub(promo["discount_amount_rub"]))
     return price

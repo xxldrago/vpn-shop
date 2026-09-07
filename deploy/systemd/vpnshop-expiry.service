@@ -9,4 +9,5 @@ After=docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/vpn-shop
-ExecStart=docker compose exec -T shop python -m jobs expiry
+ExecStartPre=docker compose -f deploy/docker-compose.yml up -d shop
+ExecStart=docker compose -f deploy/docker-compose.yml exec -T shop python -m jobs expiry
