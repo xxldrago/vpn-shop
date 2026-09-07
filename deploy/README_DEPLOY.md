@@ -214,6 +214,46 @@ sudo docker compose -f deploy/docker-compose.yml up -d --build
 После разворачивания — протестируем по очереди: покупка, промокоды, тестовая
 подписка, рефералка, баланс, тикеты, QR/конфиги, Telegram-бот, уведомления.
 
+## Money migration to INTEGER
+
+The one-time `migrate-money` job converts the seven legacy REAL ruble columns to
+whole-ruble INTEGER columns using `CAST(FLOOR(...))`, verifies every row and
+column sum, and normalizes naive timestamps to an explicit `+00:00` offset.
+The DROP + RENAME step is intentionally one-way.
+
+Run the following sequence against a copy first, never against the live SQLite
+file from a development machine:
+
+1. Stop writes or take a consistent backup, then copy the production database
+   to a separate path on the VPS.
+2. Rehearse without dropping any columns and review the complete delta report:
+
+   ```bash
+   SHOP_DB_PATH=/srv/vpnshop/backups/shop-copy.db \
+     python -m jobs migrate-money --verify-only
+   ```
+
+   Every `max_delta` must be at most `1` and every `sum_delta` must be exactly
+   `0`. The timestamp report lists rows that will receive `+00:00`.
+3. During the approved maintenance window, back up the database again and run
+   the full sequence against the verified copy/path:
+
+   ```bash
+   cp /srv/vpnshop/data/shop.db /srv/vpnshop/backups/shop.db.before-money-migration
+   SHOP_DB_PATH=/srv/vpnshop/data/shop.db \
+     MIGRATE_MONEY_ALLOW_PRODUCTION=1 \
+     python -m jobs migrate-money
+   ```
+
+   The job records its outcome in `job_runs`. The default guard refuses a full
+   run when the target is the configured database path; the explicit
+   `MIGRATE_MONEY_ALLOW_PRODUCTION=1` override is reserved for the reviewed VPS
+   maintenance window. `--verify-only` and `--dry-run` remain non-destructive.
+4. Verify `typeof(...)` is `integer` for every non-NULL money value, and that
+   migrated timestamps end in `+00:00` (or retain an explicit `Z` suffix). If a
+   rollback is required, stop the services and restore the pre-migration DB
+   backup; the dropped REAL columns cannot be recovered in place.
+
 ## Scheduled jobs rollout
 
 Expiry and payment reconciliation run as systemd one-shot jobs inside the

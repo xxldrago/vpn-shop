@@ -15,6 +15,7 @@ from datetime import timedelta
 
 import database
 import services
+from config import DB_PATH as CONFIGURED_DB_PATH
 from panel_client import PanelClientError
 
 
@@ -45,7 +46,7 @@ def _migration_connection(path):
 def _guard_migration_path(path, verify_only, dry_run):
     if verify_only or dry_run or os.environ.get("MIGRATE_MONEY_ALLOW_PRODUCTION") == "1":
         return
-    if path == os.path.abspath(database.DB_PATH):
+    if path == os.path.abspath(CONFIGURED_DB_PATH):
         raise RuntimeError(
             "refusing full money migration on the configured database; "
             "set SHOP_DB_PATH to a verified copy or explicitly authorize the maintenance window"
@@ -113,6 +114,14 @@ def _print_migration_report(report, timestamp_report, prefix=""):
         print(f"{prefix}{item['table']}.{item['column']}: naive_timestamp_rows={item['rows']}")
 
 
+def _ensure_job_runs_table(conn):
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS job_runs ("
+        "job_name TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT NOT NULL, "
+        "ok INTEGER NOT NULL, error TEXT)"
+    )
+
+
 def migrate_money(db_path=None, verify_only=False, dry_run=False):
     """Rehearse or execute the one-time REAL-to-INTEGER money migration."""
     if verify_only and dry_run:
@@ -137,6 +146,7 @@ def migrate_money(db_path=None, verify_only=False, dry_run=False):
             return
 
         conn.execute("BEGIN IMMEDIATE")
+        _ensure_job_runs_table(conn)
         _ensure_backfill_columns(conn)
         report = _verify_backfill(conn)
         timestamp_report = _timestamp_report(conn)
@@ -171,6 +181,7 @@ def migrate_money(db_path=None, verify_only=False, dry_run=False):
 def _record_job_run(job_name, started_at, ok, error=None):
     conn = database.get_db()
     try:
+        _ensure_job_runs_table(conn)
         conn.execute(
             "INSERT INTO job_runs (job_name, started_at, finished_at, ok, error) "
             "VALUES (?, ?, ?, ?, ?)",
@@ -334,11 +345,21 @@ async def _run_subcommand(job_name, dry_run, verify_only=False):
 
 
 def run_job(job_name, dry_run=False, verify_only=False):
-    if os.environ.get("SHOP_DB_PATH"):
-        database.DB_PATH = _migration_path()
+    migration_db_path = _migration_path() if os.environ.get("SHOP_DB_PATH") else None
     started_at = services.now_iso()
     try:
-        asyncio.run(_run_subcommand(job_name, dry_run, verify_only=verify_only))
+        if migration_db_path:
+            database.DB_PATH = migration_db_path
+        if job_name == "migrate-money":
+            asyncio.run(
+                _run_subcommand(
+                    job_name,
+                    dry_run,
+                    verify_only=verify_only,
+                )
+            )
+        else:
+            asyncio.run(_run_subcommand(job_name, dry_run, verify_only=verify_only))
     except Exception as exc:
         logger.error("job %s failed: %s", job_name, exc, exc_info=True)
         if not dry_run:

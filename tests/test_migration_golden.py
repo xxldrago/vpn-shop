@@ -103,3 +103,33 @@ def test_dry_run_does_not_touch_legacy_schema(tmp_path, capsys):
     assert "dry-run" in output
     assert "plans.price_rub" in output
     assert "price_rub_rub" not in _columns(path, "plans")
+
+
+def test_full_migration_drops_legacy_columns_and_normalizes_timestamps(tmp_path):
+    path = _legacy_db(tmp_path)
+
+    jobs.migrate_money(db_path=str(path))
+
+    conn = sqlite3.connect(path)
+    try:
+        columns = _columns(path, "orders")
+        assert columns["amount_rub"] == "INTEGER"
+        assert "amount_rub_rub" not in columns
+        assert conn.execute(
+            "SELECT amount_rub, original_price_rub, balance_used_rub FROM orders"
+        ).fetchone() == (150, 82, 250)
+        assert conn.execute("SELECT typeof(balance) FROM app_users").fetchone() == ("integer",)
+        assert conn.execute(
+            "SELECT balance FROM app_users WHERE id = ?", ("u-negative",)
+        ).fetchone() == (-63,)
+        assert conn.execute(
+            "SELECT SUM(amount_rub) - ? FROM orders", (150,)
+        ).fetchone() == (0,)
+        timestamps = conn.execute(
+            "SELECT paid_at, created_at FROM orders UNION ALL "
+            "SELECT created_at, created_at FROM app_users"
+        ).fetchall()
+        assert timestamps
+        assert all(value.endswith("+00:00") for row in timestamps for value in row)
+    finally:
+        conn.close()
