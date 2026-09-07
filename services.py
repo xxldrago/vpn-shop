@@ -6,19 +6,26 @@ web UI and the bot behave identically.
 import json
 import secrets
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 import database
 from panel_client import PanelClient, PanelClientError
 from platega_client import PlategaClient, PlategaClientError
 
 
+def now():
+    """Canonical clock: tz-aware UTC, never naive (D-08 / FOUND-05)."""
+    return datetime.now(timezone.utc)
+
+
 def now_iso():
-    return datetime.utcnow().isoformat()
+    """ISO 8601 rendering of the canonical clock, always +00:00 suffixed."""
+    return now().isoformat()
 
 
 def utcnow():
-    return datetime.utcnow()
+    """Compatibility alias for existing call sites; returns the tz-aware now()."""
+    return now()
 
 
 def get_panel_client():

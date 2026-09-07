@@ -17,6 +17,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from config import BASE_DIR, SESSION_SECRET
 import database
 import services
+from services import now_iso, utcnow
 from panel_client import PanelClient, PanelClientError
 from platega_client import PlategaClient, PlategaClientError
 from auth import hash_password, verify_password
@@ -55,14 +56,6 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), na
 
 
 # ---------------- Helpers ----------------
-
-def now_iso():
-    return datetime.utcnow().isoformat()
-
-
-def utcnow():
-    return datetime.utcnow()
-
 
 def parse_iso(value):
     if not value:

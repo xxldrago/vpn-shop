@@ -1,6 +1,5 @@
 import asyncio
 import os
-from datetime import datetime
 import sqlite3
 
 from config import DATA_DIR, DB_PATH, DEFAULT_SETTINGS
@@ -114,10 +113,6 @@ DEFAULT_PLANS = [
 ]
 
 
-def now_iso():
-    return datetime.utcnow().isoformat()
-
-
 def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
@@ -163,6 +158,10 @@ def _migrate(conn):
 
 
 def _seed_defaults(conn):
+    # Lazy import: services.py imports this module at top level, so a
+    # module-level `from services import ...` here would create a cycle.
+    from services import now_iso
+
     existing = conn.execute("SELECT COUNT(*) AS c FROM plans").fetchone()["c"]
     if existing == 0:
         for name, desc, price, days, sort in DEFAULT_PLANS:
