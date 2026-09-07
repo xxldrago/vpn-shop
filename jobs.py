@@ -334,6 +334,8 @@ async def _run_subcommand(job_name, dry_run, verify_only=False):
 
 
 def run_job(job_name, dry_run=False, verify_only=False):
+    if os.environ.get("SHOP_DB_PATH"):
+        database.DB_PATH = _migration_path()
     started_at = services.now_iso()
     try:
         asyncio.run(_run_subcommand(job_name, dry_run, verify_only=verify_only))
