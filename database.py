@@ -138,6 +138,19 @@ CREATE TABLE IF NOT EXISTS job_runs (
     ok INTEGER NOT NULL,
     error TEXT
 );
+
+CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    order_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    is_read INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES app_users(id),
+    FOREIGN KEY (order_id) REFERENCES orders(id)
+);
 """
 
 DEFAULT_PLANS = [

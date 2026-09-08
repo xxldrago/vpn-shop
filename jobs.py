@@ -15,6 +15,7 @@ from datetime import timedelta
 
 import database
 import services
+import bot
 from config import DB_PATH as CONFIGURED_DB_PATH
 from panel_client import PanelClientError
 
@@ -220,6 +221,11 @@ def _expiry_plan():
 
 
 async def run_expiry(dry_run=False):
+    # Fold auto-renewal and reminders into the expiry driver (D-16)
+    # so they run on the existing systemd timer without a new timer.
+    await run_auto_renewal(dry_run=dry_run)
+    await run_reminder_scan(dry_run=dry_run)
+    
     expired, stale = _expiry_plan()
     if dry_run:
         for order in expired:
@@ -286,6 +292,145 @@ async def run_expiry(dry_run=False):
 
     for order in stale:
         services.refund_order_balance(order["id"])
+
+
+def _auto_renewal_plan():
+    """Find due auto-renewal candidates: paid, non-trial, plan-based orders where
+    the owning user has auto_renewal=1, expires_at <= now, and no newer active paid subscription exists (D-14)."""
+    now = services.now_iso()
+    conn = database.get_db()
+    try:
+        return [dict(row) for row in conn.execute(
+            "SELECT o.id, o.user_id, o.plan_id, o.plan_name, o.expires_at "
+            "FROM orders o "
+            "JOIN app_users u ON u.id = o.user_id "
+            "WHERE o.status = 'paid' AND u.auto_renewal = 1 "
+            "AND o.plan_id IS NOT NULL AND o.is_trial = 0 "
+            "AND o.expires_at IS NOT NULL AND o.expires_at <= ? "
+            "AND NOT EXISTS ("
+            "  SELECT 1 FROM orders o2 "
+            "  WHERE o2.user_id = o.user_id AND o2.status = 'paid' "
+            "  AND o2.plan_id IS NOT NULL AND o2.is_trial = 0 "
+            "  AND o2.expires_at IS NOT NULL AND o2.expires_at > ? AND o2.id != o.id"
+            ") "
+            "ORDER BY o.expires_at, o.id",
+            (now, now),
+        ).fetchall()]
+    finally:
+        conn.close()
+
+
+def _reminder_plan():
+    """Find subscription reminders due ~3 days before expires_at for auto-renewal users.
+    Uses a 1-hour dedup window: [now + (days-1)h, now + (days+1)h]."""
+    now = services.now_iso()
+    reminder_days = services.get_setting_int("reminder_before_days", 3)
+    window_start = (services.utcnow() + timedelta(hours=reminder_days * 24 - 1)).isoformat()
+    window_end = (services.utcnow() + timedelta(hours=reminder_days * 24 + 1)).isoformat()
+    conn = database.get_db()
+    try:
+        return [dict(row) for row in conn.execute(
+            "SELECT o.id, o.user_id, o.plan_name, o.expires_at "
+            "FROM orders o "
+            "JOIN app_users u ON u.id = o.user_id "
+            "WHERE o.status = 'paid' AND u.auto_renewal = 1 "
+            "AND o.plan_id IS NOT NULL AND o.is_trial = 0 "
+            "AND o.expires_at IS NOT NULL "
+            "AND o.expires_at > ? AND o.expires_at <= ? "
+            "AND NOT EXISTS ("
+            "  SELECT 1 FROM notifications n "
+            "  WHERE n.order_id = o.id AND n.kind = 'reminder'"
+            ") "
+            "ORDER BY o.expires_at, o.id",
+            (window_start, window_end),
+        ).fetchall()]
+    finally:
+        conn.close()
+
+
+async def run_auto_renewal(dry_run=False):
+    """Scan and auto-renew due subscriptions."""
+    candidates = _auto_renewal_plan()
+    if dry_run:
+        for order in candidates:
+            print(f"auto-renewal: would renew order {order['id']} user={order['user_id']} "
+                  f"plan={order.get('plan_name') or 'unknown'} expires={order.get('expires_at') or '?'}")
+        return
+
+    for order in candidates:
+        try:
+            await services.auto_renew_order(order["id"])
+        except services.OrderError as e:
+            logger.warning("auto-renewal: order %s failed: %s", order["id"], e)
+            # Record failure as a notification (deduped per order)
+            conn = database.get_db()
+            try:
+                existing = conn.execute(
+                    "SELECT 1 FROM notifications WHERE order_id = ? AND kind = 'auto_renewal_failed'",
+                    (order["id"],)
+                ).fetchone()
+                if not existing:
+                    conn.execute(
+                        "INSERT INTO notifications (user_id, order_id, kind, title, message, created_at) "
+                        "VALUES (?, ?, 'auto_renewal_failed', ?, ?, ?)",
+                        (order["user_id"], order["id"],
+                         "Ошибка автопродления",
+                         f"Недостаточно средств для автопродления. Пополните баланс.",
+                         services.now_iso())
+                    )
+                    conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error("auto-renewal: unexpected error for order %s: %s", order["id"], e, exc_info=True)
+
+
+async def run_reminder_scan(dry_run=False):
+    """Scan and send reminders ~3 days before subscription expiry."""
+    candidates = _reminder_plan()
+    if dry_run:
+        for order in candidates:
+            print(f"remind: would remind user {order['user_id']} order={order['id']} "
+                  f"expires={order.get('expires_at') or '?'}")
+        return
+
+    for order in candidates:
+        # Dedup check
+        conn = database.get_db()
+        try:
+            existing = conn.execute(
+                "SELECT 1 FROM notifications WHERE order_id = ? AND kind = 'reminder'",
+                (order["id"],)
+            ).fetchone()
+            if existing:
+                continue
+
+            # Insert web notification (durable channel)
+            expires_str = order["expires_at"][:10] if order.get("expires_at") else "?"
+            conn.execute(
+                "INSERT INTO notifications (user_id, order_id, kind, title, message, created_at) "
+                "VALUES (?, ?, 'reminder', ?, ?, ?)",
+                (order["user_id"], order["id"],
+                 "Скоро истекает подписка",
+                 f"Ваша подписка истекает {expires_str}. Пополните баланс или включите автопродление.",
+                 services.now_iso())
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Telegram push (best-effort)
+        conn = database.get_db()
+        try:
+            user = conn.execute("SELECT telegram_id FROM app_users WHERE id = ?", (order["user_id"],)).fetchone()
+            if user and user["telegram_id"]:
+                await bot.send_message_to_user(user["telegram_id"],
+                    f"🔔 <b>Скоро истекает подписка</b>\n"
+                    f"План: {order.get('plan_name') or 'unknown'}\n"
+                    f"До: {expires_str}\n"
+                    f"Пополните баланс или включите автопродление.")
+        finally:
+            conn.close()
 
 
 def _reconcile_plan():
@@ -366,6 +511,10 @@ async def _run_subcommand(job_name, dry_run, verify_only=False):
         await run_expiry(dry_run=dry_run)
     elif job_name == "reconcile":
         await run_reconcile(dry_run=dry_run)
+    elif job_name == "auto-renewal":
+        await run_auto_renewal(dry_run=dry_run)
+    elif job_name == "remind":
+        await run_reminder_scan(dry_run=dry_run)
     elif job_name == "migrate-money":
         migrate_money(verify_only=verify_only, dry_run=dry_run)
     else:
@@ -400,7 +549,7 @@ def run_job(job_name, dry_run=False, verify_only=False):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="vpn-shop scheduled jobs")
-    parser.add_argument("job", choices=("expiry", "reconcile", "migrate-money"))
+    parser.add_argument("job", choices=("expiry", "reconcile", "auto-renewal", "remind", "migrate-money"))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verify-only", action="store_true")
     args = parser.parse_args(argv)

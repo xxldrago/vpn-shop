@@ -39,6 +39,25 @@ REGISTER_SECRET = None  # set from settings at start
 dp = Dispatcher()
 
 
+async def send_message_to_user(telegram_id, text) -> bool:
+    """Send a Telegram message to a user by telegram_id.
+    
+    Returns True on success, False if the token is empty or the send raises.
+    Used by the scheduler (jobs.py) for reminder pushes.
+    """
+    token = database.get_setting("telegram_bot_token", "")
+    if not token:
+        return False
+    try:
+        bot = Bot(token=token, default=DefaultBotProperties(parse_mode="HTML"))
+        await bot.send_message(telegram_id, text)
+        await bot.session.close()
+        return True
+    except Exception as e:
+        logger.warning("send_message_to_user failed: %s", e)
+        return False
+
+
 # ---------------- Callback factories ----------------
 
 class MenuCB(CallbackData, prefix="m"):
