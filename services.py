@@ -1020,6 +1020,16 @@ async def auto_renew_order(order_id: str) -> bool:
         if not user or not user["auto_renewal"]:
             return False
         
+        # D-14: only target the current active paid subscription.
+        # If a newer active paid subscription exists (expires_at > now), skip this older due order.
+        newer_active = conn.execute(
+            "SELECT 1 FROM orders WHERE user_id = ? AND status = 'paid' AND plan_id IS NOT NULL "
+            "AND is_trial = 0 AND expires_at IS NOT NULL AND expires_at > ? AND id != ? LIMIT 1",
+            (order["user_id"], now_iso(), order_id),
+        ).fetchone()
+        if newer_active:
+            return False  # user has a newer active subscription — don't renew this older one
+        
         plan = conn.execute("SELECT * FROM plans WHERE id = ?", (order["plan_id"],)).fetchone()
         if not plan:
             return False

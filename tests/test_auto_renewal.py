@@ -332,5 +332,98 @@ def test_expiry_dry_run_does_not_renew(test_db):
     pass
 
 
+def test_auto_renewal_skips_trial_order(test_db):
+    """Trial orders (is_trial=1) are never auto-renewed."""
+    user = services.create_user("trial_skip", email="trial@example.com", password="pass123")
+    conn = database.get_db()
+    try:
+        services.add_balance_int(conn, user["id"], 1000, "test_credit")
+        services.set_auto_renewal(conn, user["id"], True)
+        conn.commit()
+
+        conn.execute(
+            "INSERT INTO orders (id, user_id, plan_id, plan_name, amount_rub, is_trial, status, paid_at, expires_at, created_at) "
+            "VALUES (?, ?, 1, 'Trial', 0, 1, 'paid', ?, ?, ?)",
+            ("trial-order", user["id"], "2024-01-01T00:00:00+00:00",
+             (services.utcnow() - timedelta(days=1)).isoformat(), services.now_iso())
+        )
+        conn.commit()
+
+        result = asyncio.run(services.auto_renew_order("trial-order"))
+        assert result is False
+
+        balance = conn.execute("SELECT balance FROM app_users WHERE id = ?", (user["id"],)).fetchone()
+        assert balance["balance"] == 1000  # unchanged
+    finally:
+        conn.close()
+
+
+def test_auto_renewal_skips_topup_order(test_db):
+    """Top-up orders (plan_id IS NULL) are never auto-renewed."""
+    user = services.create_user("topup_skip", email="topup@example.com", password="pass123")
+    conn = database.get_db()
+    try:
+        services.add_balance_int(conn, user["id"], 1000, "test_credit")
+        services.set_auto_renewal(conn, user["id"], True)
+        conn.commit()
+
+        conn.execute(
+            "INSERT INTO orders (id, user_id, plan_id, plan_name, amount_rub, status, paid_at, expires_at, created_at) "
+            "VALUES (?, ?, NULL, 'Topup', 500, 'paid', ?, ?, ?)",
+            ("topup-order", user["id"], "2024-01-01T00:00:00+00:00",
+             (services.utcnow() - timedelta(days=1)).isoformat(), services.now_iso())
+        )
+        conn.commit()
+
+        result = asyncio.run(services.auto_renew_order("topup-order"))
+        assert result is False
+
+        balance = conn.execute("SELECT balance FROM app_users WHERE id = ?", (user["id"],)).fetchone()
+        assert balance["balance"] == 1000  # unchanged
+    finally:
+        conn.close()
+
+
+def test_auto_renewal_targets_current_active_subscription(test_db):
+    """If user has a newer active subscription, the older due order is NOT renewed."""
+    user = services.create_user("current_active", email="current@example.com", password="pass123")
+    conn = database.get_db()
+    try:
+        services.add_balance_int(conn, user["id"], 5000, "test_credit")
+        services.set_auto_renewal(conn, user["id"], True)
+        conn.commit()
+
+        # Old due order (expired 2 days ago)
+        conn.execute(
+            "INSERT INTO orders (id, user_id, plan_id, plan_name, amount_rub, status, paid_at, expires_at, created_at) "
+            "VALUES (?, ?, 1, '15 дней', 150, 'paid', ?, ?, ?)",
+            ("old-order", user["id"], "2024-01-01T00:00:00+00:00",
+             (services.utcnow() - timedelta(days=2)).isoformat(), services.now_iso())
+        )
+        # Newer paid subscription (expires in 5 hours — still active, expires_at > now)
+        conn.execute(
+            "INSERT INTO orders (id, user_id, plan_id, plan_name, amount_rub, status, paid_at, expires_at, created_at) "
+            "VALUES (?, ?, 2, '1 месяц', 250, 'paid', ?, ?, ?)",
+            ("new-order", user["id"], "2024-01-15T00:00:00+00:00",
+             (services.utcnow() + timedelta(hours=5)).isoformat(), services.now_iso())
+        )
+        conn.commit()
+
+        # Should NOT renew the old order (newer active subscription exists)
+        result = asyncio.run(services.auto_renew_order("old-order"))
+        assert result is False
+
+        # The old order's expires_at should be unchanged (still <= now)
+        old = conn.execute("SELECT expires_at FROM orders WHERE id = ?", ("old-order",)).fetchone()
+        assert old["expires_at"] is not None
+        assert old["expires_at"] <= services.now_iso()
+
+        # Balance unchanged (no debit on skipped order)
+        balance = conn.execute("SELECT balance FROM app_users WHERE id = ?", (user["id"],)).fetchone()
+        assert balance["balance"] == 5000
+    finally:
+        conn.close()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
