@@ -622,9 +622,13 @@ async def profile_page(request: Request):
     try:
         app_row = conn.execute("SELECT * FROM app_users WHERE id = ?", (user["id"],)).fetchone()
         app_user = dict(app_row) if app_row else {}
+        notifications = [dict(r) for r in conn.execute(
+            "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 20",
+            (user["id"],)
+        ).fetchall()]
     finally:
         conn.close()
-    return render(request, "user/profile.html", user=user, app_user=app_user)
+    return render(request, "user/profile.html", user=user, app_user=app_user, notifications=notifications)
 
 
 @app.post("/dashboard/profile/auto-renewal/toggle")
@@ -637,6 +641,27 @@ async def auto_renewal_toggle(request: Request, enabled: str = Form("")):
         conn.commit()
         # update session
         request.session["user"] = {**user, "auto_renewal": 1 if enabled else 0, "auto_renewal_at": now_iso() if enabled else None}
+    finally:
+        conn.close()
+    return RedirectResponse(url="/dashboard/profile", status_code=303)
+
+
+@app.post("/dashboard/profile/notifications/read")
+async def mark_notification_read(request: Request, notification_id: int = Form(0), all: int = Form(0)):
+    user = require_user(request)
+    conn = database.get_db()
+    try:
+        if all:
+            conn.execute(
+                "UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0",
+                (user["id"],)
+            )
+        elif notification_id:
+            conn.execute(
+                "UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?",
+                (notification_id, user["id"])
+            )
+        conn.commit()
     finally:
         conn.close()
     return RedirectResponse(url="/dashboard/profile", status_code=303)

@@ -32,6 +32,35 @@
     </form>
   </div>
 
+  <div class="section-title">Уведомления</div>
+  <div class="card" style="margin-bottom: 20px;">
+    {% if notifications %}
+      {% for n in notifications %}
+        <div class="alert {% if n.kind == 'auto_renewal_failed' %}alert-warning{% else %}alert-info{% endif %}" style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <strong>{{ n.title }}</strong>
+            <div style="font-size: 0.85rem;">{{ n.message }}</div>
+            <div class="muted" style="font-size: 0.8rem;">{{ n.created_at[:16] }}</div>
+          </div>
+          {% if not n.is_read %}
+            <form method="post" action="/dashboard/profile/notifications/read" style="margin: 0;">
+              <input type="hidden" name="notification_id" value="{{ n.id }}">
+              <button class="btn btn-outline btn-sm" type="submit">✓</button>
+            </form>
+          {% endif %}
+        </div>
+      {% endfor %}
+      <div style="text-align: right;">
+        <form method="post" action="/dashboard/profile/notifications/read" style="margin: 0;">
+          <input type="hidden" name="all" value="1">
+          <button class="btn btn-ghost btn-sm" type="submit">Отметить все прочитанными</button>
+        </form>
+      </div>
+    {% else %}
+      <div class="muted">Нет уведомлений</div>
+    {% endif %}
+  </div>
+
   {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
   <form method="post" action="/dashboard/profile/save">
     <div class="form-group">
