@@ -5,6 +5,34 @@
 
 <div class="card" style="max-width:600px;">
   {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+  
+  <div class="section-title">Автопродление подписки</div>
+  <div class="card" style="margin-bottom: 20px;">
+    <form method="post" action="/dashboard/profile/auto-renewal/toggle">
+      <div class="form-group">
+        <label class="switch">
+          <input type="checkbox" name="enabled" value="1" {% if app_user.auto_renewal %}checked{% endif %} onchange="this.form.submit()">
+          <span class="slider"></span>
+        </label>
+        <div style="margin-left: 12px;">
+          <strong>{% if app_user.auto_renewal %}Автопродление включено{% else %}Автопродление выключено{% endif %}</strong>
+          {% if app_user.auto_renewal_at %}
+            <div class="muted" style="font-size: 0.85rem;">Включено: {{ app_user.auto_renewal_at[:10] }}</div>
+          {% endif %}
+          <div class="muted" style="font-size: 0.85rem; margin-top: 4px;">
+            {% if app_user.auto_renewal %}
+            При выключении доступ сохранится до конца оплаченного периода. 
+            {% else %}
+            При включении автопродление начнётся с ближайшего дедлайна подписки.
+            {% endif %}
+          </div>
+        </div>
+        <input type="hidden" name="enabled" value="1">
+      </div>
+    </form>
+  </div>
+
+  {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
   <form method="post" action="/dashboard/profile/save">
     <div class="form-group">
       <label>Логин (изменить нельзя)</label>

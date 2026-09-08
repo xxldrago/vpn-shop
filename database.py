@@ -231,6 +231,8 @@ def _migrate(conn):
         ("referral_code", "TEXT"),
         ("referrer_id", "TEXT"),
         ("referred_paid", "INTEGER DEFAULT 0"),
+        ("auto_renewal", "INTEGER DEFAULT 0"),
+        ("auto_renewal_at", "TEXT"),
     ):
         if col not in ucolumns:
             conn.execute(f"ALTER TABLE app_users ADD COLUMN {col} {ddl}")

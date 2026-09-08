@@ -618,7 +618,28 @@ async def dashboard(request: Request):
 @app.get("/dashboard/profile", response_class=HTMLResponse)
 async def profile_page(request: Request):
     user = require_user(request)
-    return render(request, "user/profile.html", user=user)
+    conn = database.get_db()
+    try:
+        app_row = conn.execute("SELECT * FROM app_users WHERE id = ?", (user["id"],)).fetchone()
+        app_user = dict(app_row) if app_row else {}
+    finally:
+        conn.close()
+    return render(request, "user/profile.html", user=user, app_user=app_user)
+
+
+@app.post("/dashboard/profile/auto-renewal/toggle")
+async def auto_renewal_toggle(request: Request, enabled: str = Form("")):
+    user = require_user(request)
+    enabled = enabled in ("1", "true", "on", "yes")
+    conn = database.get_db()
+    try:
+        services.set_auto_renewal(conn, user["id"], enabled)
+        conn.commit()
+        # update session
+        request.session["user"] = {**user, "auto_renewal": 1 if enabled else 0, "auto_renewal_at": now_iso() if enabled else None}
+    finally:
+        conn.close()
+    return RedirectResponse(url="/dashboard/profile", status_code=303)
 
 
 async def _balance_page(request: Request):

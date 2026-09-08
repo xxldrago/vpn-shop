@@ -945,3 +945,123 @@ def renewal_days(order: dict) -> int:
     if plan:
         return int(plan["duration_days"])
     return 0
+
+
+def extend_subscription(conn, user_id: str, plan_days: int) -> str:
+    """Compute the new expires_at by extending from the current active subscription's
+    expiry (or now, whichever is later). Returns ISO 8601 string with +00:00 suffix.
+    """
+    active = conn.execute(
+        "SELECT expires_at FROM orders WHERE user_id = ? AND status = 'paid'"
+        " AND expires_at IS NOT NULL AND expires_at > ? ORDER BY expires_at DESC LIMIT 1",
+        (user_id, now_iso()),
+    ).fetchone()
+    base = utcnow()
+    if active and active["expires_at"]:
+        try:
+            base = datetime.fromisoformat(active["expires_at"])
+            if base < utcnow():
+                base = utcnow()
+        except ValueError:
+            base = utcnow()
+    return (base + timedelta(days=plan_days)).isoformat()
+
+
+def set_auto_renewal(conn, user_id: str, enabled: bool) -> dict:
+    """Set the user's auto-renewal flag and consent timestamp.
+    
+    When enabled=True: sets auto_renewal=1 and records consent timestamp (now_iso)
+    ONLY if transitioning from disabled to enabled (preserves original consent timestamp on re-enable).
+    When enabled=False: clears auto_renewal and auto_renewal_at (per RENEW-02).
+    Returns the updated user dict.
+    """
+    if enabled:
+        # Only set timestamp when transitioning from disabled to enabled (preserve original consent timestamp on re-enable)
+        conn.execute(
+            "UPDATE app_users SET auto_renewal = 1, auto_renewal_at = COALESCE(auto_renewal_at, ?) WHERE id = ?",
+            (now_iso(), user_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE app_users SET auto_renewal = 0, auto_renewal_at = NULL WHERE id = ?",
+            (user_id,),
+        )
+    conn.commit()
+    row = conn.execute("SELECT * FROM app_users WHERE id = ?", (user_id,)).fetchone()
+    return dict(row) if row else None
+
+
+async def auto_renew_order(order_id: str) -> bool:
+    """Attempt to auto-renew a single due subscription.
+    
+    Claim-then-effect: within a single tx, check the per-user flag, claim the renewal,
+    debit the wallet, extend the term, and on success update the panel expiration_date.
+    Returns True on success, False if the order is not due/already renewed/not eligible,
+    raises OrderError on insufficient balance (so the tx rolls back).
+    
+    Per D-13/D-15/D-16: auto-renewal flag lives on app_users (per-user), not on orders.
+    The panel expiration_date is updated (not re-issuing configs/keys) so the service stays active.
+    """
+    with database.tx() as conn:
+        order = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if not order:
+            return False
+        order = dict(order)
+        
+        # Valid candidate: paid, has plan, not trial, has expires_at, deadline reached
+        if not (order["status"] == "paid" and order["plan_id"] is not None 
+                and not order.get("is_trial") 
+                and order.get("expires_at") 
+                and order["expires_at"] <= now_iso()):
+            return False
+        
+        # Check per-user auto-renewal flag (D-13: flag lives on app_users, NOT orders)
+        user = conn.execute("SELECT * FROM app_users WHERE id = ?", (order["user_id"],)).fetchone()
+        if not user or not user["auto_renewal"]:
+            return False
+        
+        plan = conn.execute("SELECT * FROM plans WHERE id = ?", (order["plan_id"],)).fetchone()
+        if not plan:
+            return False
+        price = money.to_rub(plan["price_rub"])
+        
+        # Compute new expires_at from max(active_expires_at, now) + plan duration
+        new_expires = extend_subscription(conn, order["user_id"], plan["duration_days"])
+        
+        # Claim the renewal: guarded UPDATE on the order (no auto_renewal in WHERE - it's on app_users)
+        claim = conn.execute(
+            "UPDATE orders SET expires_at = ? WHERE id = ? AND status = 'paid' "
+            "AND is_trial = 0 AND plan_id IS NOT NULL AND expires_at IS NOT NULL AND expires_at <= ?",
+            (new_expires, order_id, now_iso()),
+        )
+        if claim.rowcount != 1:
+            return False  # already renewed / not due / not eligible — idempotent no-op
+        
+        # Guarded atomic debit (claim-then-effect): balance >= amount guard
+        user = conn.execute("SELECT * FROM app_users WHERE id = ?", (order["user_id"],)).fetchone()
+        debit = conn.execute(
+            "UPDATE app_users SET balance = balance - ? WHERE id = ? AND balance >= ?",
+            (price, order["user_id"], price),
+        )
+        if debit.rowcount != 1:
+            # Insufficient balance — raise to roll back the extend claim
+            raise OrderError("Недостаточно средств для автопродления")
+        
+        # Record the debit ledger row
+        conn.execute(
+            "INSERT INTO balance_transactions (user_id, amount, kind, ref_order_id, note, created_at)"
+            " VALUES (?, ?, 'auto_renewal', ?, ?, ?)",
+            (order["user_id"], -price, order_id, f"Автопродление тарифа {plan['name']}", now_iso()),
+        )
+        
+        # Capture data needed for post-commit panel call (tx closes connection on exit)
+        user_dict = dict(user)
+        
+        conn.commit()
+    
+    # Post-commit: extend panel user's expiration_date (service stays active, no config re-issue)
+    panel = get_panel_client()
+    panel_user = await ensure_panel_user(user_dict)
+    await panel.update_panel_user(panel_user["id"], expiration_date=new_expires)
+    
+    return True

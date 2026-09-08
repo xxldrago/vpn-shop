@@ -65,6 +65,10 @@ class PayCB(CallbackData, prefix="pay"):
     quantity: int = 1
 
 
+class RenewCB(CallbackData, prefix="ar"):
+    enabled: bool
+
+
 # ---------------- FSM states ----------------
 
 class RegisterState(StatesGroup):
@@ -462,6 +466,14 @@ async def m_subs(cb: CallbackQuery, state: FSMContext):
         await _need_account(cb)
         return
     active = services.get_active_subscription(user["id"])
+    # Load fresh user data to check auto_renewal flag
+    conn = database.get_db()
+    try:
+        app_user = conn.execute("SELECT * FROM app_users WHERE id = ?", (user["id"],)).fetchone()
+        app_user = dict(app_user) if app_user else {}
+    finally:
+        conn.close()
+    
     orders = services.list_user_orders(user["id"])[:10]
     lines = ["<b>📋 Мои подписки</b>\n"]
     if active:
@@ -473,7 +485,37 @@ async def m_subs(cb: CallbackQuery, state: FSMContext):
         for o in orders:
             st = {"paid": "✅", "pending": "⏳", "cancelled": "❌", "expired": "⏰"}.get(o["status"], "•")
             lines.append(f"{st} {o.get('plan_name')} — {o['status']} ({o.get('created_at','')[:10]})")
-    await cb.message.answer("\n".join(lines), reply_markup=_markup(menu_btn()))
+    
+    # Auto-renewal toggle button
+    if app_user.get("auto_renewal"):
+        btn_text = "🔄 Автопродление: ВЫКЛ"
+        btn_cb = RenewCB(enabled=False).pack()
+    else:
+        btn_text = "🔄 Автопродление: ВКЛ"
+        btn_cb = RenewCB(enabled=True).pack()
+    
+    await cb.message.answer("\n".join(lines), reply_markup=_markup(
+        [InlineKeyboardButton(text=btn_text, callback_data=btn_cb)],
+        menu_btn(),
+    ))
+
+
+@dp.callback_query(RenewCB.filter())
+async def renew_toggle(cb: CallbackQuery, state: FSMContext):
+    user = resolve_user(cb.from_user.id)
+    if not user:
+        await _need_account(cb)
+        return
+    cb_data = RenewCB.unpack(cb.data)
+    conn = database.get_db()
+    try:
+        services.set_auto_renewal(conn, user["id"], cb_data.enabled)
+        conn.commit()
+    finally:
+        conn.close()
+    
+    # Re-render the subscriptions view
+    await m_subs(cb, FSMContext())
 
 
 # ---------------- Trial ----------------
