@@ -286,12 +286,18 @@ def resolve_promo(code: str, user_id: str) -> dict | None:
 
     user_id is REQUIRED (no default) so no checkout path can forget the
     acting user's identity (T-03-02). Validation order per P-09: active →
-    dates → first-purchase → per-user → global max. The first-purchase
-    check queries `orders` at apply time (P-01) — no denormalized flag on
-    the user record; the per-user read check is a precondition whose
-    authoritative gate is the claim (P-02). An empty user_id (price preview
-    via quote_order) skips both user-specific checks: the orders query
-    finds no rows and the JSON lookup defaults to 0.
+    dates → first-purchase → per-user → global max. The date bounds are
+    checked in Python, NOT in the SQL WHERE, so the specific per-side
+    Russian message is returned (P-06 step 2): "Промокод ещё не активен"
+    before `valid_from`, "Срок действия промокода истёк" after
+    `valid_until`. Bounds are inclusive (valid exactly AT both edges,
+    P-04); NULL = no bound. String comparison is safe because both sides
+    are the canonical tz-aware `now_iso()` format (+00:00, D-08). The
+    first-purchase check queries `orders` at apply time (P-01) — no
+    denormalized flag on the user record; the per-user read check is a
+    precondition whose authoritative gate is the claim (P-02). An empty
+    user_id (price preview via quote_order) skips both user-specific checks:
+    the orders query finds no rows and the JSON lookup defaults to 0.
     """
     code = code.strip()
     if not code:
@@ -299,13 +305,16 @@ def resolve_promo(code: str, user_id: str) -> dict | None:
     conn = database.get_db()
     try:
         row = conn.execute(
-            "SELECT * FROM promo_codes WHERE code = ? AND is_active = 1"
-            " AND (valid_from IS NULL OR valid_from <= ?) AND (valid_until IS NULL OR valid_until >= ?)",
-            (code, now_iso(), now_iso()),
+            "SELECT * FROM promo_codes WHERE code = ? AND is_active = 1",
+            (code,),
         ).fetchone()
         if not row:
             return None, "Промокод недействителен"
         row = dict(row)
+        if row["valid_from"] and now_iso() < row["valid_from"]:
+            return None, "Промокод ещё не активен"
+        if row["valid_until"] and now_iso() > row["valid_until"]:
+            return None, "Срок действия промокода истёк"
         if row["first_purchase_only"]:
             existing = conn.execute(
                 "SELECT 1 FROM orders WHERE user_id = ? AND status = 'paid' AND is_trial = 0 LIMIT 1",
