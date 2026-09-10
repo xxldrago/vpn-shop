@@ -875,26 +875,13 @@ async def support_ticket_message(request: Request, ticket_id: int, message: str 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_dashboard(request: Request):
     require_admin(request)
+    revenue = services.get_revenue_report()
+    active_subscribers = services.get_active_subscribers()
+    expiring_subscribers = services.get_expiring_subscribers()
     conn = database.get_db()
     try:
-        total_revenue = conn.execute(
-            "SELECT COALESCE(SUM(amount_rub),0) AS s FROM orders WHERE status='paid' AND is_trial=0"
-        ).fetchone()["s"]
-        today_start = (utcnow().replace(hour=0, minute=0, second=0, microsecond=0)).isoformat()
-        today_revenue = conn.execute(
-            "SELECT COALESCE(SUM(amount_rub),0) AS s FROM orders WHERE status='paid' AND is_trial=0 AND paid_at >= ?",
-            (today_start,),
-        ).fetchone()["s"]
         paid_orders = conn.execute("SELECT COUNT(*) AS c FROM orders WHERE status='paid'").fetchone()["c"]
         pending_orders = conn.execute("SELECT COUNT(*) AS c FROM orders WHERE status='pending'").fetchone()["c"]
-        active_subs = conn.execute(
-            "SELECT COUNT(*) AS c FROM orders WHERE status='paid' AND expires_at > ?", (now_iso(),)
-        ).fetchone()["c"]
-        expiring_soon = [dict(r) for r in conn.execute(
-            "SELECT * FROM orders WHERE status='paid' AND expires_at > ?"
-            " AND expires_at <= ? ORDER BY expires_at",
-            (now_iso(), (utcnow() + timedelta(days=3)).isoformat()),
-        ).fetchall()]
         open_tickets = conn.execute("SELECT COUNT(*) AS c FROM support_tickets WHERE status='open'").fetchone()["c"]
     finally:
         conn.close()
@@ -905,9 +892,12 @@ async def admin_dashboard(request: Request):
         servers = []
     return render(
         request, "admin/dashboard.html",
-        total_revenue=total_revenue, today_revenue=today_revenue,
+        total_revenue=revenue["total_rub"], today_revenue=revenue["today_rub"],
+        by_day=revenue["by_day"], by_month=revenue["by_month"],
+        by_plan=revenue["by_plan"], by_method=revenue["by_method"],
         paid_orders=paid_orders, pending_orders=pending_orders,
-        active_subs=active_subs, expiring_soon=expiring_soon,
+        active_subscribers=active_subscribers,
+        expiring_subscribers=expiring_subscribers,
         open_tickets=open_tickets, servers=servers,
     )
 

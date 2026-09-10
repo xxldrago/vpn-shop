@@ -386,6 +386,253 @@ def get_promo_report() -> list[dict]:
         conn.close()
 
 
+def get_revenue_report() -> dict:
+    """On-demand revenue report for the admin dashboard (ANAL-01).
+
+    Revenue definition follows the locked phase decisions:
+      D-01  status='paid' AND is_trial=0 AND plan_id IS NOT NULL
+            (top-ups and trial orders excluded)
+      D-02  per-order paid amount = amount_rub + balance_used_rub
+      D-05  day/month buckets = substr(paid_at,1,10) / substr(paid_at,1,7) in UTC
+      D-07  payment method binary: platega (amount_rub>0) / balance (else)
+      D-08  plan breakdown groups by order plan_id, falls back to order plan_name
+
+    All money values are converted to integer rubles via money.to_rub before
+    returning; templates never receive raw float sums (Pitfall 3). The report
+    is read-only and uses only server-clock bound parameters.
+    """
+    revenue_filter = "WHERE status='paid' AND is_trial=0 AND plan_id IS NOT NULL"
+    amount_expr = "amount_rub + balance_used_rub"
+
+    conn = database.get_db()
+    try:
+        now_str = now_iso()
+        today_start = now_str[:10] + "T00:00:00"  # prefix-safe UTC day boundary
+
+        total_rub = money.to_rub(
+            conn.execute(
+                f"SELECT COALESCE(SUM({amount_expr}), 0) AS s FROM orders {revenue_filter}"
+            ).fetchone()["s"]
+        )
+        today_rub = money.to_rub(
+            conn.execute(
+                f"SELECT COALESCE(SUM({amount_expr}), 0) AS s FROM orders {revenue_filter}"
+                " AND paid_at >= ?",
+                (today_start,),
+            ).fetchone()["s"]
+        )
+
+        def _bucket_rows(sql: str, key_name: str) -> list[dict]:
+            rows = conn.execute(sql).fetchall()
+            out = []
+            for r in rows:
+                row = dict(r)
+                row[key_name] = row[key_name]  # bucket label already aliased
+                row["orders_count"] = int(row["orders_count"] or 0)
+                row["revenue"] = money.to_rub(row["revenue"])
+                out.append(row)
+            return out
+
+        by_day = _bucket_rows(
+            f"SELECT substr(paid_at, 1, 10) AS day,"
+            f" COUNT(id) AS orders_count, COALESCE(SUM({amount_expr}), 0) AS revenue"
+            f" FROM orders {revenue_filter} AND paid_at IS NOT NULL"
+            " GROUP BY substr(paid_at, 1, 10) ORDER BY day DESC",
+            "day",
+        )
+        by_month = _bucket_rows(
+            f"SELECT substr(paid_at, 1, 7) AS month,"
+            f" COUNT(id) AS orders_count, COALESCE(SUM({amount_expr}), 0) AS revenue"
+            f" FROM orders {revenue_filter} AND paid_at IS NOT NULL"
+            " GROUP BY substr(paid_at, 1, 7) ORDER BY month DESC",
+            "month",
+        )
+        by_plan = _bucket_rows(
+            "SELECT COALESCE(p.name, o.plan_name) AS plan_name,"
+            f" COUNT(o.id) AS orders_count, COALESCE(SUM(o.{amount_expr}), 0) AS revenue"
+            " FROM orders o LEFT JOIN plans p ON o.plan_id = p.id"
+            f" {revenue_filter}"
+            " GROUP BY o.plan_id, COALESCE(p.name, o.plan_name)"
+            " ORDER BY revenue DESC, plan_name",
+            "plan_name",
+        )
+        by_method = _bucket_rows(
+            "SELECT CASE WHEN amount_rub > 0 THEN 'platega' ELSE 'balance' END AS method,"
+            f" COUNT(id) AS orders_count, COALESCE(SUM({amount_expr}), 0) AS revenue"
+            f" FROM orders {revenue_filter}"
+            " GROUP BY method ORDER BY method",
+            "method",
+        )
+
+        return {
+            "total_rub": total_rub,
+            "today_rub": today_rub,
+            "by_day": by_day,
+            "by_month": by_month,
+            "by_plan": by_plan,
+            "by_method": by_method,
+        }
+    finally:
+        conn.close()
+
+
+def get_active_subscribers() -> list[dict]:
+    """List of active subscribers for the admin dashboard (ANAL-02).
+
+    One row per unique user, selecting the latest non-expired paid plan order
+    via ROW_NUMBER over (expires_at DESC, paid_at DESC). Returns only D‑11 fields:
+    username, email, telegram_id, plan_name, expires_at, days_until_expiry.
+    """
+    conn = database.get_db()
+    try:
+        now_str = now_iso()
+        rows = conn.execute(
+            """
+            WITH ranked AS (
+                SELECT
+                    o.user_id,
+                    o.expires_at,
+                    o.paid_at,
+                    u.username,
+                    u.email,
+                    u.telegram_id,
+                    COALESCE(p.name, o.plan_name) AS plan_name,
+                    ROW_NUMBER() OVER (PARTITION BY o.user_id ORDER BY o.expires_at DESC, o.paid_at DESC) AS rn
+                FROM orders o
+                LEFT JOIN app_users u ON o.user_id = u.id
+                LEFT JOIN plans p ON o.plan_id = p.id
+                WHERE o.status = 'paid' AND o.is_trial = 0 AND o.plan_id IS NOT NULL
+                  AND o.expires_at > ?
+            )
+            SELECT
+                user_id,
+                username,
+                email,
+                telegram_id,
+                plan_name,
+                expires_at,
+                CAST(julianday(expires_at) - julianday(?) AS INTEGER) AS days_until_expiry
+            FROM ranked
+            WHERE rn = 1
+            ORDER BY expires_at ASC
+            """,
+            (now_str, now_str),
+        ).fetchall()
+        out = []
+        for r in rows:
+            row = dict(r)
+            row["days_until_expiry"] = int(row["days_until_expiry"])
+            out.append(row)
+        return out
+    finally:
+        conn.close()
+
+
+def get_expiring_subscribers() -> list[dict]:
+    """List of subscribers whose orders expire within the next 7 days (inclusive).
+
+    Order-level rows with expires_at in (now, now+7d] inclusive.
+    Days-until-expiry is computed via SQL julianday so legacy naive timestamps
+    render correctly (Pitfall 5). Returns only D-11 fields.
+    """
+    conn = database.get_db()
+    try:
+        now_str = now_iso()
+        now_plus_7 = (datetime.datetime.fromisoformat(now_str) + datetime.timedelta(days=7)).isoformat()
+        rows = conn.execute(
+            """
+            SELECT
+                o.user_id,
+                u.username,
+                u.email,
+                u.telegram_id,
+                COALESCE(p.name, o.plan_name) AS plan_name,
+                o.expires_at,
+                CAST(julianday(o.expires_at) - julianday(?) AS INTEGER) AS days_until_expiry
+            FROM orders o
+            LEFT JOIN app_users u ON o.user_id = u.id
+            LEFT JOIN plans p ON o.plan_id = p.id
+            WHERE o.status = 'paid' AND o.is_trial = 0 AND o.plan_id IS NOT NULL
+              AND o.expires_at > ? AND o.expires_at <= ?
+            ORDER BY o.expires_at ASC
+            """,
+            (now_str, now_plus_7),
+        ).fetchall()
+        out = []
+        for r in rows:
+            row = dict(r)
+            row["days_until_expiry"] = int(row["days_until_expiry"])
+            out.append(row)
+        return out
+    finally:
+        conn.close()
+    conn = database.get_db()
+    try:
+        now_str = now_iso()
+        rows = conn.execute(
+            """
+            WITH ranked AS (
+              SELECT o.id, o.user_id, o.plan_id, o.plan_name, o.expires_at, o.paid_at,
+                     ROW_NUMBER() OVER (PARTITION BY o.user_id
+                                        ORDER BY o.expires_at DESC, o.paid_at DESC) AS rn
+              FROM orders o
+              WHERE o.status = 'paid' AND o.plan_id IS NOT NULL AND o.expires_at > ?
+            )
+            SELECT r.id, r.user_id,
+                   COALESCE(p.name, r.plan_name) AS plan_name,
+                   r.expires_at,
+                   u.username, u.email, u.telegram_id,
+                   CAST(julianday(r.expires_at) - julianday(?) AS INTEGER) AS days_until_expiry
+            FROM ranked r
+            LEFT JOIN app_users u ON u.id = r.user_id
+            LEFT JOIN plans p ON p.id = r.plan_id
+            WHERE r.rn = 1
+            ORDER BY r.expires_at
+            """,
+            (now_str, now_str)
+        ).fetchall()
+        report = []
+        for r in rows:
+            row = dict(r)
+            row["days_until_expiry"] = int(row["days_until_expiry"])
+            report.append(row)
+        return report
+    finally:
+        conn.close()
+
+
+def get_expiring_subscribers() -> list[dict]:
+    """List of subscribers expiring within 7 days for the admin dashboard (ANAL-02).
+    Order-level rows with expires_at in (now, now+7d] inclusive (D-10).
+    """
+    conn = database.get_db()
+    try:
+        now_str = now_iso()
+        seven_days_from_now = (now() + timedelta(days=7)).isoformat()
+        rows = conn.execute(
+            """
+            SELECT o.id, o.user_id, o.plan_name, o.expires_at,
+                   u.username, u.email, u.telegram_id,
+                   CAST(julianday(o.expires_at) - julianday(?) AS INTEGER) AS days_until_expiry
+            FROM orders o
+            LEFT JOIN app_users u ON u.id = o.user_id
+            LEFT JOIN plans p ON p.id = o.plan_id
+            WHERE o.status = 'paid' AND o.plan_id IS NOT NULL
+              AND o.expires_at > ? AND o.expires_at <= ?
+            ORDER BY o.expires_at
+            """,
+            (now_str, now_str, seven_days_from_now)
+        ).fetchall()
+        report = []
+        for r in rows:
+            row = dict(r)
+            row["days_until_expiry"] = int(row["days_until_expiry"])
+            report.append(row)
+        return report
+    finally:
+        conn.close()
+
+
 # ---------------- Orders ----------------
 
 def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str = "platega", quantity: int = 1) -> dict:
@@ -1133,7 +1380,7 @@ async def auto_renew_order(order_id: str) -> bool:
         if not user or not user["auto_renewal"]:
             return False
         
-        # D-14: only target the current active paid subscription.
+        # D‑14: only target the current active paid subscription.
         # If a newer active paid subscription exists (expires_at > now), skip this older due order.
         newer_active = conn.execute(
             "SELECT 1 FROM orders WHERE user_id = ? AND status = 'paid' AND plan_id IS NOT NULL "

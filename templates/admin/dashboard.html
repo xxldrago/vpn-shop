@@ -13,8 +13,8 @@
     <div class="stat-value">{{ "%.0f"|format(today_revenue) }} ₽</div>
   </div>
   <div class="card stat">
-    <div class="stat-label">Активных подписок</div>
-    <div class="stat-value">{{ active_subs }}</div>
+    <div class="stat-label">Активных подписчиков</div>
+    <div class="stat-value">{{ active_subscribers|length }}</div>
   </div>
   <div class="card stat">
     <div class="stat-label">Открытых тикетов</div>
@@ -43,18 +43,124 @@
   <a class="card" href="/"><div class="card-title">Сайт</div><div class="card-sub">Открыть магазин</div></a>
 </div>
 
-{% if expiring_soon %}
-<div class="section-title">Истекают в ближайшие 3 дня</div>
+<div class="section-title">Выручка по дням (всего)</div>
 <div class="card">
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Заказ</th><th>Пользователь</th><th>Истекает</th></tr></thead>
+      <thead><tr><th>День</th><th>Заказов</th><th>Выручка</th></tr></thead>
       <tbody>
-        {% for o in expiring_soon %}
+        {% for row in by_day %}
         <tr>
-          <td>#{{ o.id[:8] }}</td>
-          <td>{{ o.user_id[:8] }}...</td>
-          <td>{{ o.expires_at[:10] }}</td>
+          <td>{{ row.day }}</td>
+          <td>{{ row.orders_count }}</td>
+          <td>{{ "%.0f"|format(row.revenue) }} ₽</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="text-center">Нет данных</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section-title">Выручка по месяцам</div>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Месяц</th><th>Заказов</th><th>Выручка</th></tr></thead>
+      <tbody>
+        {% for row in by_month %}
+        <tr>
+          <td>{{ row.month }}</td>
+          <td>{{ row.orders_count }}</td>
+          <td>{{ "%.0f"|format(row.revenue) }} ₽</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="text-center">Нет данных</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section-title">Выручка по планам</div>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>План</th><th>Заказов</th><th>Выручка</th></tr></thead>
+      <tbody>
+        {% for row in by_plan %}
+        <tr>
+          <td>{{ row.plan_name or '-' }}</td>
+          <td>{{ row.orders_count }}</td>
+          <td>{{ "%.0f"|format(row.revenue) }} ₽</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="text-center">Нет данных</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section-title">Выручка по способу оплаты</div>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Способ</th><th>Заказов</th><th>Выручка</th></tr></thead>
+      <tbody>
+        {% for row in by_method %}
+        <tr>
+          <td>{{ row.method }}</td>
+          <td>{{ row.orders_count }}</td>
+          <td>{{ "%.0f"|format(row.revenue) }} ₽</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="text-center">Нет данных</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section-title">Активные подписчики</div>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Пользователь</th><th>Email</th><th>Telegram</th><th>Тариф</th><th>Истекает</th><th>Дней осталось</th></tr></thead>
+      <tbody>
+        {% for sub in active_subscribers %}
+        <tr>
+          <td>{{ sub.username or sub.user_id[:8] }}</td>
+          <td>{{ sub.email or '-' }}</td>
+          <td>{{ sub.telegram_id or '-' }}</td>
+          <td>{{ sub.plan_name or '-' }}</td>
+          <td>{{ sub.expires_at[:10] }}</td>
+          <td>{{ sub.days_until_expiry }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center">Нет активных подписчиков</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if expiring_subscribers %}
+<div class="section-title">Истекают в ближайшие 7 дней</div>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Пользователь</th><th>Email</th><th>Telegram</th><th>Тариф</th><th>Истекает</th><th>Дней осталось</th></tr></thead>
+      <tbody>
+        {% for sub in expiring_subscribers %}
+        <tr>
+          <td>{{ sub.username or sub.user_id[:8] }}</td>
+          <td>{{ sub.email or '-' }}</td>
+          <td>{{ sub.telegram_id or '-' }}</td>
+          <td>{{ sub.plan_name or '-' }}</td>
+          <td>{{ sub.expires_at[:10] }}</td>
+          <td>{{ sub.days_until_expiry }}</td>
         </tr>
         {% endfor %}
       </tbody>
