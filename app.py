@@ -1006,6 +1006,7 @@ async def admin_promos_add(
     discount_percent: int = Form(0),
     discount_amount_rub: float = Form(0),
     max_uses: int = Form(0),
+    first_purchase_only: int = Form(0),
     valid_from: str = Form(""),
     valid_until: str = Form(""),
 ):
@@ -1022,9 +1023,10 @@ async def admin_promos_add(
         if exists:
             return JSONResponse({"error": "Такой промокод уже существует"}, status_code=400)
         conn.execute(
-            "INSERT INTO promo_codes (code, discount_percent, discount_amount_rub, max_uses, valid_from, valid_until, is_active, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
+            "INSERT INTO promo_codes (code, discount_percent, discount_amount_rub, max_uses, first_purchase_only, valid_from, valid_until, is_active, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
             (code, discount_percent, discount_amount_rub, max_uses or None,
+             1 if first_purchase_only else 0,
              valid_from or None, valid_until or None, now_iso()),
         )
         conn.commit()
