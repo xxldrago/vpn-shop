@@ -338,6 +338,54 @@ def apply_promo_price(base_price, promo):
     return money.apply_promo_price_rub(money.to_rub(base_price), promo)
 
 
+def get_promo_report() -> list[dict]:
+    """On-demand per-code promo report (PROMO-04 / P-05).
+
+    LEFT JOIN of `promo_codes` over paid `orders` — no pre-aggregation, no
+    cache table. Codes with zero paid orders still appear (orders_count 0,
+    zero discount, zero revenue) because the `o.status = 'paid'` restriction
+    lives in the JOIN ON clause, not a WHERE that would drop unmatched codes.
+
+    Corrected arithmetic (plan deviation from RESEARCH §4, which is
+    arithmetically wrong: `revenue_after_promo = SUM(amount_rub) -
+    SUM(original_price_rub) + SUM(amount_rub)`):
+      total_discount      = SUM(original_price_rub − amount_rub − balance_used_rub)
+      revenue_after_promo = SUM(amount_rub + balance_used_rub)
+    i.e. total_discount = original − paid, revenue_after_promo = paid.
+    Paid = amount_rub + balance_used_rub because balance-method orders store
+    amount_rub=0 / balance_used_rub=paid and platega orders the reverse.
+    Money-boundary conversion via money.to_rub keeps both sums as whole-ruble
+    ints (D-01); orders_count stays an int. No float rendering in this
+    function.
+
+    Depends on the 03-01 fix storing the pre-promo total in original_price_rub.
+    Legacy rows (original == paid) read discount 0 by design — no backfill
+    (P-11). A future partial-split payment would require revisiting the paid
+    formula (flagged assumption).
+    """
+    conn = database.get_db()
+    try:
+        rows = conn.execute(
+            "SELECT pc.code, COUNT(o.id) AS orders_count,"
+            " COALESCE(SUM(o.original_price_rub - o.amount_rub - o.balance_used_rub), 0) AS total_discount,"
+            " COALESCE(SUM(o.amount_rub + o.balance_used_rub), 0) AS revenue_after_promo"
+            " FROM promo_codes pc"
+            " LEFT JOIN orders o ON o.promo_code_id = pc.id AND o.status = 'paid'"
+            " GROUP BY pc.code"
+            " ORDER BY pc.code"
+        ).fetchall()
+        report = []
+        for r in rows:
+            row = dict(r)
+            row["orders_count"] = int(row["orders_count"] or 0)
+            row["total_discount"] = money.to_rub(row["total_discount"])
+            row["revenue_after_promo"] = money.to_rub(row["revenue_after_promo"])
+            report.append(row)
+        return report
+    finally:
+        conn.close()
+
+
 # ---------------- Orders ----------------
 
 def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str = "platega", quantity: int = 1) -> dict:

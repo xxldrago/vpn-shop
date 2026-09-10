@@ -1,4 +1,4 @@
-"""Admin promo form field persistence (P-12 / T-05-02).
+"""Admin promo form field persistence + PROMO-04 report (P-12 / T-05-01 / T-05-02).
 
 Pins the exact INSERT shape `admin_promos_add` now executes (with the
 first_purchase_only column) against the isolated `test_db`: a code created
@@ -7,12 +7,42 @@ Direct DB asserts per 03-PATTERNS.md recommendation (a) — no TestClient,
 session auth not needed for a schema/persistence check. Also pins the pure
 datetime helpers `_parse_promo_datetime` / `_promo_window_valid` and the
 lossless UTC persistence of the converted window bounds (T-03-10/T-03-11).
+
+The report golden test (`test_promo_admin_report`) seeds paid orders via
+both payment methods and asserts the corrected arithmetic (original − paid
+discount, paid revenue) plus unused-code zeros and the pending-order
+exclusion. The unauth route gate (`test_report_route_admin_only`) is added
+in 03-04 Task 2.
 """
 from datetime import datetime, timedelta
 
 import app as app_module
 import database
 import services
+
+
+def _plan_id_by_price(price) -> int:
+    """Look up the seeded plan id (seeds: 150/250/600/1000/1800 rubles)."""
+    conn = database.get_db()
+    try:
+        row = conn.execute("SELECT id FROM plans WHERE price_rub = ?", (price,)).fetchone()
+        assert row is not None, f"no seeded plan at price {price}"
+        return row["id"]
+    finally:
+        conn.close()
+
+
+def _mark_paid(order_id: str):
+    """Mark an order paid directly (bypasses panel provisioning)."""
+    conn = database.get_db()
+    try:
+        conn.execute(
+            "UPDATE orders SET status = 'paid', paid_at = ? WHERE id = ?",
+            (services.now_iso(), order_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def test_promo_admin_form_fields(test_db):
@@ -139,3 +169,61 @@ def test_promo_admin_form_datetime_persists_utc(test_db):
         assert row["valid_from"].endswith("+00:00")
     finally:
         conn.close()
+
+
+def test_promo_admin_report(test_db):
+    """Golden arithmetic: SUM20 paid both methods → 2/100/400; NEVERUSED → 0/0/0.
+
+    Plan 250 ₽, SUM20 (20% off, floor per D-02) → paid 200. User A pays via
+    platega (amount_rub=200, balance_used_rub=0); user B via balance
+    (amount_rub=0, balance_used_rub=200). total_discount = (250−200) +
+    (250−200) = 100; revenue_after_promo = 200+200 = 400. A pending (unpaid)
+    promo order must NOT change those numbers — the JOIN restricts
+    status='paid'. NEVERUSED has no orders so the LEFT JOIN yields zeros.
+    """
+    plan_id = _plan_id_by_price(250)
+    conn = database.get_db()
+    try:
+        conn.execute(
+            "INSERT INTO promo_codes (code, discount_percent, max_uses_per_user, is_active, created_at)"
+            " VALUES (?, ?, ?, 1, ?)",
+            ("SUM20", 20, None, services.now_iso()),
+        )
+        conn.execute(
+            "INSERT INTO promo_codes (code, discount_percent, is_active, created_at)"
+            " VALUES (?, ?, 1, ?)",
+            ("NEVERUSED", 10, services.now_iso()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    user_a = services.create_user("report_a", email="", password="")
+    user_b = services.create_user("report_b", email="", password="")
+    user_pending = services.create_user("report_pending", email="", password="")
+    conn = database.get_db()
+    try:
+        conn.execute("UPDATE app_users SET balance = ? WHERE id = ?", (1000, user_b["id"]))
+        conn.commit()
+    finally:
+        conn.close()
+
+    order_a = services.create_order(user_a["id"], plan_id, "SUM20", method="platega")
+    _mark_paid(order_a["id"])
+    order_b = services.create_order(user_b["id"], plan_id, "SUM20", method="balance")
+    _mark_paid(order_b["id"])
+    # Pending promo order — must not be counted.
+    services.create_order(user_pending["id"], plan_id, "SUM20", method="platega")
+
+    report = {r["code"]: r for r in services.get_promo_report()}
+    assert "SUM20" in report
+    assert "NEVERUSED" in report
+    assert report["SUM20"]["orders_count"] == 2
+    assert report["SUM20"]["total_discount"] == 100
+    assert report["SUM20"]["revenue_after_promo"] == 400
+    assert report["NEVERUSED"]["orders_count"] == 0
+    assert report["NEVERUSED"]["total_discount"] == 0
+    assert report["NEVERUSED"]["revenue_after_promo"] == 0
+    # Money-boundary ints, never floats.
+    assert isinstance(report["SUM20"]["total_discount"], int)
+    assert isinstance(report["SUM20"]["revenue_after_promo"], int)
