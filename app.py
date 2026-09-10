@@ -276,7 +276,7 @@ async def create_order(request: Request, plan_id: int = Form(...), promo: str = 
 
     if not method:
         # First step: let the user choose how to pay (unless balance is empty).
-        quote = services.quote_order(plan_id, promo, qty)
+        quote = services.quote_order(plan_id, promo, qty, user_id=user["id"])
         if balance <= 0:
             method = "platega"
         else:

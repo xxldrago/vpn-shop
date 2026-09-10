@@ -139,7 +139,8 @@ def test_get_setting_int_reads_integer(test_db):
 
 def test_apply_promo_price_thin_delegate(test_db):
     """apply_promo_price now a thin delegate to money.apply_promo_price_rub."""
-    promo, err = services.resolve_promo(_promo_code(25))
+    user = services.create_user("promo_user", email="", password="")
+    promo, err = services.resolve_promo(_promo_code(25), user["id"])
     assert err == ""
     result = services.apply_promo_price(750, promo)
     assert result == 562

@@ -281,8 +281,18 @@ def get_site_url() -> str:
 
 # ---------------- Promo ----------------
 
-def resolve_promo(code: str) -> dict | None:
-    """Return (promo_row, error). Promo_row is None if invalid."""
+def resolve_promo(code: str, user_id: str) -> dict | None:
+    """Return (promo_row, error). Promo_row is None if invalid.
+
+    user_id is REQUIRED (no default) so no checkout path can forget the
+    acting user's identity (T-03-02). Validation order per P-09: active →
+    dates → first-purchase → per-user → global max. The first-purchase
+    check queries `orders` at apply time (P-01) — no denormalized flag on
+    the user record; the per-user read check is a precondition whose
+    authoritative gate is the claim (P-02). An empty user_id (price preview
+    via quote_order) skips both user-specific checks: the orders query
+    finds no rows and the JSON lookup defaults to 0.
+    """
     code = code.strip()
     if not code:
         return None, ""
@@ -296,6 +306,17 @@ def resolve_promo(code: str) -> dict | None:
         if not row:
             return None, "Промокод недействителен"
         row = dict(row)
+        if row["first_purchase_only"]:
+            existing = conn.execute(
+                "SELECT 1 FROM orders WHERE user_id = ? AND status = 'paid' AND is_trial = 0 LIMIT 1",
+                (user_id,),
+            ).fetchone()
+            if existing:
+                return None, "Промокод только для первой покупки"
+        if row["max_uses_per_user"] is not None:
+            used = json.loads(row["used_per_user"] or "{}").get(user_id, 0)
+            if used >= row["max_uses_per_user"]:
+                return None, "Лимит использования промокода для вас исчерпан"
         if row["max_uses"] is not None and row["used_count"] >= row["max_uses"]:
             return None, "Промокод исчерпан"
         return row, ""
@@ -325,7 +346,7 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str =
     plan = get_plan(plan_id, active_only=True)
     if not plan:
         raise OrderError("Тариф не найден")
-    promo, promo_err = resolve_promo(promo_code)
+    promo, promo_err = resolve_promo(promo_code, user_id)
     if promo_code.strip() and promo_err:
         raise OrderError(promo_err)
 
@@ -333,6 +354,7 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str =
     unit_price = money.to_rub(plan["price_rub"])
     base_price = money.apply_promo_price_rub(unit_price, promo)
     price = money.apply_promo_price_rub(unit_price * qty, promo)
+    original = unit_price * qty  # pre-promo total — PROMO-04 discount math depends on it
     order_id = str(uuid.uuid4())
 
     method = "platega" if method != "balance" else "balance"
@@ -347,7 +369,7 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str =
                 "INSERT INTO orders (id, user_id, plan_id, plan_name, promo_code_id, amount_rub, original_price_rub, balance_used_rub, status, created_at, quantity)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
                 (order_id, user_id, plan_id, plan["name"], promo["id"] if promo else None,
-                 0, price, price, now_iso(), qty),
+                 0, original, price, now_iso(), qty),
             )
             cur = conn.execute(
                 "UPDATE app_users SET balance = balance - ? WHERE id = ? AND balance >= ?",
@@ -373,7 +395,7 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str =
                 "INSERT INTO orders (id, user_id, plan_id, plan_name, promo_code_id, amount_rub, original_price_rub, balance_used_rub, status, created_at, quantity)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
                 (order_id, user_id, plan_id, plan["name"], promo["id"] if promo else None,
-                 payable, price, balance_used, now_iso(), qty),
+                 payable, original, balance_used, now_iso(), qty),
             )
             log_event(conn, user_id, "order_started")
             conn.commit()
@@ -394,12 +416,18 @@ def create_order(user_id: str, plan_id: int, promo_code: str = "", method: str =
     }
 
 
-def quote_order(plan_id: int, promo_code: str = "", quantity: int = 1) -> dict:
-    """Price preview for an order without creating it. Returns price after promo."""
+def quote_order(plan_id: int, promo_code: str = "", quantity: int = 1, user_id: str = "") -> dict:
+    """Price preview for an order without creating it. Returns price after promo.
+
+    user_id is optional and defaults to "" — the user-specific promotion
+    checks (first-purchase, per-user limit) are skipped in the preview; the
+    authoritatative gate remains create_order, which always receives the
+    real user id (flagged assumption: quote is a price preview only).
+    """
     plan = get_plan(plan_id, active_only=True)
     if not plan:
         raise OrderError("Тариф не найден")
-    promo, promo_err = resolve_promo(promo_code)
+    promo, promo_err = resolve_promo(promo_code, user_id)
     if promo_code.strip() and promo_err:
         raise OrderError(promo_err)
     qty = max(1, int(quantity))
@@ -773,12 +801,40 @@ async def fulfill_order_side_effects(order: dict):
 
 
 def claim_promo_usage(conn, order: dict):
-    """Count a promo exactly once when the payment claim wins."""
+    """Count a promo exactly once when the payment claim wins (P-02 / D-09).
+
+    The global count and the per-user JSON count move in ONE guarded UPDATE
+    whose statement cursor rowcount must be 1 (T-03-01). For a promo with
+    max_uses_per_user=N the WHERE clause fails once the user's count reaches
+    N, making the claim a race-free 0→1 transition for N=1. Never gate on
+    conn.total_changes — it spans the whole caller transaction (the order
+    status claim already incremented it) and can never detect a failed claim.
+
+    The gate must use coalesce(json_extract(...), 0) < ? rather than a bare
+    json_extract(...) < ?: on a missing key json_extract yields NULL and
+    `NULL < n` is NULL, which would reject the FIRST legitimate claim.
+
+    user_id keys in used_per_user are server-generated uuid4 strings
+    (create_user) — they cannot contain `"`, `$` or `]` that would break the
+    JSON path; the key is bound as a parameter, never string-interpolated
+    (T-03-03).
+    """
     if order.get("promo_code_id"):
-        conn.execute(
-            "UPDATE promo_codes SET used_count = used_count + 1 WHERE id = ?",
-            (order["promo_code_id"],),
+        user_id = order["user_id"]
+        promo_id = order["promo_code_id"]
+        row = conn.execute(
+            "SELECT max_uses_per_user FROM promo_codes WHERE id = ?", (promo_id,)
+        ).fetchone()
+        max_per_user = row["max_uses_per_user"] if row else None
+        cur = conn.execute(
+            "UPDATE promo_codes SET used_count = used_count + 1,"
+            " used_per_user = json_set(used_per_user, '$.\"' || ? || '\"',"
+            " coalesce(json_extract(used_per_user, '$.\"' || ? || '\"'), 0) + 1)"
+            " WHERE id = ? AND (? IS NULL OR coalesce(json_extract(used_per_user, '$.\"' || ? || '\"'), 0) < ?)",
+            (user_id, user_id, promo_id, max_per_user, user_id, max_per_user),
         )
+        if cur.rowcount != 1:
+            raise OrderError("Лимит использования промокода для вас исчерпан")
 
 
 async def fulfill_order(conn, order: dict):

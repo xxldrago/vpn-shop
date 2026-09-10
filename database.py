@@ -250,6 +250,17 @@ def _migrate(conn):
         if col not in ucolumns:
             conn.execute(f"ALTER TABLE app_users ADD COLUMN {col} {ddl}")
 
+    pcolumns = {r["name"] for r in conn.execute("PRAGMA table_info(promo_codes)").fetchall()}
+    for col, ddl in (
+        ("first_purchase_only", "INTEGER DEFAULT 0"),
+        ("max_uses_per_user", "INTEGER"),
+        ("valid_from", "TEXT"),
+        ("valid_until", "TEXT"),
+        ("used_per_user", "TEXT DEFAULT '{}'"),
+    ):
+        if col not in pcolumns:
+            conn.execute(f"ALTER TABLE promo_codes ADD COLUMN {col} {ddl}")
+
 
 
 def _seed_defaults(conn):

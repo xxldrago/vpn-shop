@@ -344,7 +344,7 @@ async def _buy(message, state: FSMContext, promo: str):
         await message.answer("Ошибка оформления. Начните заново.", reply_markup=main_menu())
         return
     try:
-        quote = services.quote_order(plan_id, promo, quantity)
+        quote = services.quote_order(plan_id, promo, quantity, user_id=user["id"])
     except services.OrderError as e:
         await message.answer(f"❌ {e}", reply_markup=main_menu())
         return
