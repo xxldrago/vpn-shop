@@ -1007,6 +1007,7 @@ async def admin_promos_add(
     discount_amount_rub: float = Form(0),
     max_uses: int = Form(0),
     first_purchase_only: int = Form(0),
+    max_uses_per_user: int = Form(0),
     valid_from: str = Form(""),
     valid_until: str = Form(""),
 ):
@@ -1017,16 +1018,19 @@ async def admin_promos_add(
     discount_amount_rub = money_utils.to_rub(discount_amount_rub)
     if discount_amount_rub < 0:
         return JSONResponse({"error": "Скидка не может быть отрицательной"}, status_code=400)
+    if max_uses_per_user < 0:
+        return JSONResponse({"error": "Лимит на пользователя не может быть отрицательным"}, status_code=400)
     conn = database.get_db()
     try:
         exists = conn.execute("SELECT id FROM promo_codes WHERE code = ?", (code,)).fetchone()
         if exists:
             return JSONResponse({"error": "Такой промокод уже существует"}, status_code=400)
         conn.execute(
-            "INSERT INTO promo_codes (code, discount_percent, discount_amount_rub, max_uses, first_purchase_only, valid_from, valid_until, is_active, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
+            "INSERT INTO promo_codes (code, discount_percent, discount_amount_rub, max_uses, first_purchase_only, max_uses_per_user, valid_from, valid_until, is_active, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
             (code, discount_percent, discount_amount_rub, max_uses or None,
              1 if first_purchase_only else 0,
+             max_uses_per_user or None,
              valid_from or None, valid_until or None, now_iso()),
         )
         conn.commit()

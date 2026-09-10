@@ -48,3 +48,32 @@ def test_promo_admin_form_default_is_zero(test_db):
         assert row["first_purchase_only"] == 0
     finally:
         conn.close()
+
+
+def test_promo_admin_max_uses_per_user_persistence(test_db):
+    """max_uses_per_user=3 persists as 3; 0 converts to NULL via `or None` (P-03).
+
+    Route-shaped INSERT: the bound value mirrors admin_promos_add's
+    `max_uses_per_user or None` conversion — a set value stays a set value,
+    zero/empty means unlimited (NULL), never a 0 that would block everyone.
+    """
+    conn = database.get_db()
+    try:
+        for code, raw in (("ADMINPU3", 3), ("ADMINPU0", 0)):
+            conn.execute(
+                "INSERT INTO promo_codes (code, discount_percent, discount_amount_rub, max_uses,"
+                " first_purchase_only, max_uses_per_user, valid_from, valid_until, is_active, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+                (code, 15, 0, None, 0, raw or None, None, None, services.now_iso()),
+            )
+        conn.commit()
+        row3 = conn.execute(
+            "SELECT max_uses_per_user FROM promo_codes WHERE code = ?", ("ADMINPU3",)
+        ).fetchone()
+        row0 = conn.execute(
+            "SELECT max_uses_per_user FROM promo_codes WHERE code = ?", ("ADMINPU0",)
+        ).fetchone()
+        assert row3 is not None and row3["max_uses_per_user"] == 3
+        assert row0 is not None and row0["max_uses_per_user"] is None
+    finally:
+        conn.close()
