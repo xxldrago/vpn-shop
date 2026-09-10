@@ -5,7 +5,7 @@ import re
 import secrets
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import FastAPI, Request, Form, HTTPException, Body
@@ -988,6 +988,33 @@ async def admin_plans_delete(request: Request, plan_id: int):
     return RedirectResponse(url="/admin/plans", status_code=303)
 
 
+def _parse_promo_datetime(value: str) -> str | None:
+    """Parse a datetime-local form value into a tz-aware UTC ISO string.
+
+    Per P-04 ("No user timezone — server time only") the naive datetime-local
+    string is interpreted as SERVER-LOCAL time and shifted to UTC, so the
+    stored bound always ends with +00:00 (canonical now_iso() format, D-08).
+    Empty/whitespace → None (no bound). A malformed string raises ValueError,
+    caught by the admin route into a 400 — the helper stays pure.
+    """
+    value = (value or "").strip()
+    if not value:
+        return None
+    return datetime.fromisoformat(value).astimezone(timezone.utc).isoformat()
+
+
+def _promo_window_valid(valid_from: str | None, valid_until: str | None) -> bool:
+    """True unless both bounds are set and valid_from > valid_until (P-12).
+
+    Either NULL bound is always valid (no ordering constraint). String
+    comparison is safe because both sides are the uniform UTC ISO format
+    (+00:00) produced by _parse_promo_datetime.
+    """
+    if valid_from and valid_until:
+        return valid_from <= valid_until
+    return True
+
+
 @app.get("/admin/promos", response_class=HTMLResponse)
 async def admin_promos(request: Request):
     require_admin(request)
@@ -1020,6 +1047,13 @@ async def admin_promos_add(
         return JSONResponse({"error": "Скидка не может быть отрицательной"}, status_code=400)
     if max_uses_per_user < 0:
         return JSONResponse({"error": "Лимит на пользователя не может быть отрицательным"}, status_code=400)
+    try:
+        valid_from_utc = _parse_promo_datetime(valid_from)
+        valid_until_utc = _parse_promo_datetime(valid_until)
+    except ValueError:
+        return JSONResponse({"error": "Дата указана в неверном формате"}, status_code=400)
+    if not _promo_window_valid(valid_from_utc, valid_until_utc):
+        return JSONResponse({"error": "Дата начала не может быть позже даты окончания"}, status_code=400)
     conn = database.get_db()
     try:
         exists = conn.execute("SELECT id FROM promo_codes WHERE code = ?", (code,)).fetchone()
@@ -1031,7 +1065,7 @@ async def admin_promos_add(
             (code, discount_percent, discount_amount_rub, max_uses or None,
              1 if first_purchase_only else 0,
              max_uses_per_user or None,
-             valid_from or None, valid_until or None, now_iso()),
+             valid_from_utc, valid_until_utc, now_iso()),
         )
         conn.commit()
     finally:
