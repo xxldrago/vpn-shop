@@ -11,6 +11,8 @@ usage increments inside used_per_user.
 import json
 import threading
 
+import pytest
+
 import database
 import money
 import services
@@ -188,5 +190,117 @@ def test_promo_claim_increments_used_per_user(test_db):
         used = json.loads(row["used_per_user"] or "{}")
         assert used[user["id"]] == 2
         assert row["used_count"] == 2
+    finally:
+        conn.close()
+
+
+# ---------------- Per-user limit (PROMO-02 / P-03) ----------------
+
+def test_promo_per_user_limit(test_db):
+    """Claims stop exactly at max_uses_per_user=2; the 3rd raises OrderError.
+
+    Each claim runs on its own connection inside database.tx() (BEGIN
+    IMMEDIATE) mirroring the real fulfillment context. The guarded UPDATE's
+    WHERE (coalesce(json_extract(...), 0) < ?) matches no row once the count
+    reaches the cap → statement-cursor rowcount 0 → OrderError. The JSON
+    counter never exceeds the limit.
+    """
+    promo = _promo_code_full("LIMIT2", 20, max_uses_per_user=2)
+    promo_id = _promo_id(promo)
+    user = services.create_user("limituser", email="", password="")
+
+    for _ in range(2):
+        with database.tx() as tx_conn:
+            services.claim_promo_usage(
+                tx_conn, {"promo_code_id": promo_id, "user_id": user["id"]}
+            )
+
+    with pytest.raises(services.OrderError) as exc:
+        with database.tx() as tx_conn:
+            services.claim_promo_usage(
+                tx_conn, {"promo_code_id": promo_id, "user_id": user["id"]}
+            )
+    assert str(exc.value) == "Лимит использования промокода для вас исчерпан"
+
+    conn = database.get_db()
+    try:
+        row = conn.execute(
+            "SELECT used_per_user FROM promo_codes WHERE id = ?", (promo_id,)
+        ).fetchone()
+        used = json.loads(row["used_per_user"] or "{}")
+        assert used[user["id"]] == 2
+    finally:
+        conn.close()
+
+
+def test_promo_per_user_read_check(test_db):
+    """resolve_promo rejects a capped user at apply time; other users still pass.
+
+    After 2 claims on a max_uses_per_user=2 code, the read check
+    (used_per_user[user_id] >= max_uses_per_user) returns the locked Russian
+    error for THAT user while a different user resolves cleanly — the cap is
+    per-user, not global.
+    """
+    promo = _promo_code_full("READCHK", 20, max_uses_per_user=2, first_purchase_only=0)
+    promo_id = _promo_id(promo)
+    capped = services.create_user("cappeduser", email="", password="")
+    other = services.create_user("otheruser", email="", password="")
+
+    for _ in range(2):
+        with database.tx() as tx_conn:
+            services.claim_promo_usage(
+                tx_conn, {"promo_code_id": promo_id, "user_id": capped["id"]}
+            )
+
+    row, err = services.resolve_promo(promo, capped["id"])
+    assert row is None
+    assert err == "Лимит использования промокода для вас исчерпан"
+
+    row, err = services.resolve_promo(promo, other["id"])
+    assert row is not None
+    assert err == ""
+
+
+def test_promo_per_user_concurrent_claim(test_db):
+    """6 threads race claims on max_uses_per_user=3: exactly 3 winners.
+
+    BEGIN IMMEDIATE serializes writers; per-connection tx() gives each thread
+    its own write connection. The guarded UPDATE makes the 4th..6th claims
+    match zero rows → rowcount 0 → OrderError (T-03-07). Final JSON count is
+    exactly 3 — the counter never exceeds the cap under contention.
+    """
+    promo = _promo_code_full("RACE6", 20, max_uses_per_user=3)
+    promo_id = _promo_id(promo)
+    user = services.create_user("race6user", email="", password="")
+    barrier = threading.Barrier(6)
+    results = []
+
+    def attempt():
+        barrier.wait()
+        try:
+            with database.tx() as tx_conn:
+                services.claim_promo_usage(
+                    tx_conn, {"promo_code_id": promo_id, "user_id": user["id"]}
+                )
+            results.append("ok")
+        except services.OrderError:
+            results.append("limit")
+
+    threads = [threading.Thread(target=attempt) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert results.count("ok") == 3
+    assert results.count("limit") == 3
+
+    conn = database.get_db()
+    try:
+        row = conn.execute(
+            "SELECT used_per_user FROM promo_codes WHERE id = ?", (promo_id,)
+        ).fetchone()
+        used = json.loads(row["used_per_user"] or "{}")
+        assert used[user["id"]] == 3
     finally:
         conn.close()
