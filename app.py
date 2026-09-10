@@ -1097,6 +1097,13 @@ async def admin_promos_delete(request: Request, promo_id: int):
     return RedirectResponse(url="/admin/promos", status_code=303)
 
 
+@app.get("/admin/promos/report", response_class=HTMLResponse)
+async def admin_promos_report(request: Request):
+    require_admin(request)
+    rows = services.get_promo_report()
+    return render(request, "admin/promo_report.html", rows=rows)
+
+
 @app.get("/admin/orders", response_class=HTMLResponse)
 async def admin_orders(request: Request, status: str = ""):
     require_admin(request)

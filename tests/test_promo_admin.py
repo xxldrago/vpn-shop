@@ -227,3 +227,20 @@ def test_promo_admin_report(test_db):
     # Money-boundary ints, never floats.
     assert isinstance(report["SUM20"]["total_discount"], int)
     assert isinstance(report["SUM20"]["revenue_after_promo"], int)
+
+
+def test_report_route_admin_only(test_db):
+    """GET /admin/promos/report without admin auth returns 302/401/403, no report data.
+
+    The route starts with `require_admin`, so unauthenticated or non-admin
+    users are denied; the response should not contain the report title or
+    data. This pins the gate.
+    """
+    from fastapi.testclient import TestClient as TC
+    client = TC(app_module.app)
+    resp = client.get("/admin/promos/report")
+    # Unauthenticated → redirect (302) or unauthorized (401/403)
+    assert resp.status_code in (302, 401, 403), f"expected redirect or auth error, got {resp.status_code}"
+    # Verify the response does NOT contain report content
+    assert "Отчёт по промокодам" not in resp.text
+    assert "Скидка" not in resp.text
