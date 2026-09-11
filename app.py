@@ -1232,3 +1232,16 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("SHOP_PORT", "8080"))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+@app.get("/profile")
+async def profile(request: Request, user = Depends(get_current_user)):
+    db = database.get_db()
+    try:
+        sub = db.execute(
+            "SELECT * FROM orders WHERE user_id = ? AND status = 'paid' AND plan_id IS NOT NULL ORDER BY expires_at DESC LIMIT 1",
+            (user["id"],)
+        ).fetchone()
+        active_sub = dict(sub) if sub else None
+        return render(request, "profile.html", active_sub=active_sub, user=user)
+    finally:
+        db.close()

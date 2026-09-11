@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1 class="page-title">Личный кабинет</h1>
+        <a href="/logout" class="btn btn-outline" style="width: auto;">Выйти</a>
+    </div>
+
+    <!-- Главная информация -->
+    <div class="grid grid-2">
+        <!-- Карточка подписки -->
+        <div class="card">
+            <div class="card-title">Текущая подписка</div>
+            {% if active_sub %}
+                <div class="metric-label">Статус</div>
+                <span class="badge active">Активна</span>
+                <div class="metric-value" style="margin-top: 12px;">{{ active_sub.plan_name }}</div>
+                <div class="metric-label" style="margin-top: 4px;">Истекает: {{ active_sub.expires_at[:10] }}</div>
+            {% else %}
+                <div class="metric-label">Статус</div>
+                <span class="badge expired">Не активна</span>
+                <div class="metric-value" style="margin-top: 12px;">Нет подписки</div>
+            {% endif %}
+        </div>
+
+        <!-- Карточка баланса -->
+        <div class="card">
+            <div class="card-title">Баланс</div>
+            <div class="metric-value">{{ "%.2f"|format(user.balance) }} ₽</div>
+            <div class="metric-label">Наличными на счету</div>
+            <a href="/topup" class="btn btn-primary" style="margin-top: 16px;">Пополнить</a>
+        </div>
+    </div>
+
+    <!-- VPN Конфигурация -->
+    <div class="card">
+        <div class="card-title">Подключение VPN</div>
+        {% if active_sub %}
+            <div class="grid grid-3" style="margin-bottom: 20px;">
+                <div>
+                    <div class="metric-label">Сервер</div>
+                    <div>{{ server_name or "Авто" }}</div>
+                </div>
+                <div>
+                    <div class="metric-label">IP-адрес</div>
+                    <div>{{ public_ip or "Запрос..." }}</div>
+                </div>
+                <div>
+                    <div class="metric-label">Статус</div>
+                    <span class="badge active">Доступен</span>
+                </div>
+            </div>
+            <div class="grid grid-2">
+                <a href="/download_config" class="btn btn-primary">Скачать конфиг</a>
+                <a href="/instructions" class="btn btn-outline">Инструкция</a>
+            </div>
+        {% else %}
+            <p style="color: var(--text-muted); margin-bottom: 16px;">Чтобы получить доступ к VPN, необходимо оформить подписку.</p>
+            <a href="/plans" class="btn btn-primary">Выбрать тариф</a>
+        {% endif %}
+    </div>
+
+    <!-- Действия -->
+    <div class="card">
+        <div class="card-title">Быстрые действия</div>
+        <ul class="action-list">
+            <li class="action-item">
+                <span class="action-label">Продлить подписку</span>
+                <a href="/buy" class="action-link">Перейти →</a>
+            </li>
+            <li class="action-item">
+                <span class="action-label">Настройки профиля</span>
+                <a href="/profile/edit" class="action-link">Изменить →</a>
+            </li>
+            <li class="action-item">
+                <span class="action-label">Поддержка</span>
+                <a href="/support" class="action-link">Написать →</a>
+            </li>
+            <li class="action-item">
+                <span class="action-label">История заказов</span>
+                <a href="/orders" class="action-link">Смотреть →</a>
+            </li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
