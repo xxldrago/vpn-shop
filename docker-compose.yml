@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  shop:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - data:/app/data
+      - .env:/app/.env:ro
+    environment:
+      - PANEL_URL=${PANEL_URL:-http://localhost:5000}
+      - PANEL_TOKEN=${PANEL_TOKEN}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    ports:
+      - "8080:8080"
+
+  bot:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - data:/app/data
+      - .env:/app/.env:ro
+    command:
+      - python
+      - bot.py
+    environment:
+      - PANEL_URL=${PANEL_URL:-http://localhost:5000}
+      - PANEL_TOKEN=${PANEL_TOKEN}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+
+volumes:
+  data:
