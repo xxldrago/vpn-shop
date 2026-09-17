@@ -1,53 +1,59 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-title">Баланс</div>
-<div class="page-sub">Личный кошелёк — на него можно пополнять и оплачивать подписки.</div>
+<div class="cab-wrap">
+  <div class="page-title">Баланс</div>
+  <div class="page-sub">Личный кошелёк: пополняйте картой и оплачивайте подписки.</div>
 
-<div class="card stat mb-2" style="max-width:400px;">
-  <div class="stat-label">Мой баланс</div>
-  <div class="stat-value" style="color:var(--success); font-size:2rem;">{{ "%.2f"|format(balance) }} ₽</div>
-  <div class="card-sub">Можно оплатить подписку полностью с баланса или пополнить его картой.</div>
-</div>
+  <div class="cab-hero">
+    <div>
+      <div class="cab-hero-label">Доступно</div>
+      <div class="cab-hero-metric cab-num">{{ "%.2f"|format(balance) }} ₽</div>
+      <div class="cab-hero-sub">Можно оплатить подписку полностью с баланса</div>
+    </div>
+    <div>
+      <div class="cab-hero-label">Пополнение</div>
+      <form method="post" action="/balance/topup" style="display:flex; gap:8px; flex-wrap:wrap;">
+        <input type="number" name="amount" step="0.01" min="1" placeholder="Сумма, ₽" required class="form-control" style="flex:1; min-width:140px; background:#fff;" />
+        <button type="submit" class="btn btn-primary">Пополнить</button>
+      </form>
+      <div class="cab-hero-sub" style="margin-top:8px;">Оплата картой через Platega</div>
+    </div>
+  </div>
 
-{% if error %}<div class="alert alert-danger mt-2">{{ error }}</div>{% endif %}
+  {% if error %}<div class="alert alert-danger mt-2">{{ error }}</div>{% endif %}
 
-<div class="section-title">Пополнить баланс</div>
-<div class="card" style="max-width:400px;">
-  <form method="post" action="/balance/topup">
-    <label class="lbl">Сумма пополнения, ₽</label>
-    <input type="number" name="amount" step="0.01" min="1" placeholder="Например: 300" required class="form-control" />
-    <button type="submit" class="btn btn-primary btn-block mt-2">Пополнить через Platega</button>
-  </form>
-</div>
-
-<div class="section-title">История операций</div>
-{% if transactions %}
-<div class="card">
-  <table>
-    <thead>
-      <tr>
-        <th>Дата</th>
-        <th>Описание</th>
-        <th style="text-align:right;">Сумма</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for t in transactions %}
-      <tr>
-        <td>{{ (t.created_at or '')[:16].replace('T',' ') }}</td>
-        <td>{{ t.note or t.kind }}</td>
-        <td style="text-align:right; {% if t.amount >= 0 %}color:var(--success);{% else %}color:var(--danger);{% endif %}">
-          {{ "+" if t.amount >= 0 else "" }}{{ "%.2f"|format(t.amount) }} ₽
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% else %}
-<div class="alert alert-info mt-2">Пока нет операций по балансу. Пополните его картой или получайте бонусы по реферальной программе.</div>
-{% endif %}
-<div class="actions mt-2">
-  <a class="btn btn-ghost btn-sm" href="/dashboard">← Назад</a>
+  <div class="cab-section">
+    <div class="cab-section-head">
+      <h2 class="cab-section-title">История операций</h2>
+    </div>
+    {% if transactions %}
+    <div class="card" style="padding:0; overflow:hidden;">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Дата</th>
+              <th>Операция</th>
+              <th style="text-align:right;">Сумма</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in transactions %}
+            <tr>
+              <td class="cab-num">{{ (t.created_at or '')[:16].replace('T',' ') }}</td>
+              <td>{{ t.note or t.kind }}</td>
+              <td class="cab-num" style="text-align:right; {% if t.amount >= 0 %}color:var(--cab-signal-deep);{% else %}color:var(--cab-red);{% endif %}">
+                {{ "+" if t.amount >= 0 else "" }}{{ "%.2f"|format(t.amount) }} ₽
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="cab-empty"><strong>Операций пока нет</strong>Пополните баланс картой или получайте бонусы за приглашения.</div>
+    {% endif %}
+  </div>
 </div>
 {% endblock %}

@@ -425,3 +425,97 @@ table .btn { white-space: nowrap; }
 .action-label { font-size: 14px; font-weight: 500; color: var(--text-main); }
 .action-link { font-size: 14px; color: var(--primary); text-decoration: none; }
 .action-link:hover { text-decoration: underline; }
+
+/* ============================================================
+   Cabinet "Signal" system (user/* + profile.html only)
+   Old classes below are untouched: admin/auth keep working.
+   Namespace: cab-*  Tokens: cab-mist/paper/ink/muted/line/signal/...
+   ============================================================ */
+:root {
+  --cab-mist: #EDF1F6;
+  --cab-paper: #FFFFFF;
+  --cab-ink: #17233C;
+  --cab-ink-soft: #24334F;
+  --cab-muted: #5B6B85;
+  --cab-line: #DCE3ED;
+  --cab-signal: #0C7C6B;
+  --cab-signal-deep: #095A4E;
+  --cab-signal-soft: #DDF0EA;
+  --cab-amber: #B45309;
+  --cab-amber-soft: #FBEBD3;
+  --cab-red: #C4362B;
+  --cab-red-soft: #FADFDC;
+  --cab-radius: 14px;
+}
+
+.cab-wrap { max-width: 960px; margin: 0 auto; padding: 8px 0 32px; }
+.cab-wrap p, .cab-wrap td, .cab-wrap .card-sub { max-width: 80ch; }
+.cab-num { font-variant-numeric: tabular-nums; }
+
+/* Hero: the one bold place. Ink-filled status panel. */
+.cab-hero {
+  background: var(--cab-ink); color: #fff;
+  border-radius: var(--cab-radius);
+  padding: 28px 28px 24px; margin: 8px 0 28px;
+  display: grid; gap: 20px;
+}
+@media (min-width: 760px) {
+  .cab-hero { grid-template-columns: 1.4fr 1fr 1fr; align-items: center; }
+}
+.cab-hero-label { font-size: 0.85rem; color: #9FB0C9; margin-bottom: 8px; }
+.cab-hero-title { font-size: 1.9rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; margin: 0 0 6px; }
+.cab-hero-sub { color: #B9C5D9; font-size: 0.95rem; }
+.cab-signal { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; }
+.cab-dot { width: 12px; height: 12px; border-radius: 50%; background: #34D399; box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); animation: cab-pulse 2.4s infinite; }
+.cab-dot.off { background: #F5A524; box-shadow: none; animation: none; }
+@keyframes cab-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); }
+  70% { box-shadow: 0 0 0 12px rgba(52, 211, 153, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+}
+@media (prefers-reduced-motion: reduce) { .cab-dot { animation: none; } }
+.cab-hero-metric { font-size: 1.7rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.cab-hero .btn-primary { background: var(--cab-signal); }
+.cab-hero .btn-primary:hover { background: var(--cab-signal-deep); }
+.cab-hero .btn-outline { background: transparent; border-color: rgba(255,255,255,0.35); color: #fff; }
+.cab-hero .btn-outline:hover { border-color: #fff; color: #fff; background: rgba(255,255,255,0.08); }
+
+/* Sections separated by air + hairlines, not boxes */
+.cab-section { margin: 30px 0; }
+.cab-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--cab-line); padding-bottom: 10px; margin-bottom: 16px; }
+.cab-section-title { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
+.cab-section-hint { color: var(--cab-muted); font-size: 0.88rem; }
+
+/* Config rows */
+.cab-config { background: var(--cab-paper); border: 1px solid var(--cab-line); border-radius: var(--cab-radius); padding: 18px 20px; margin-bottom: 12px; }
+.cab-config-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.cab-config-name { font-weight: 700; font-size: 1.02rem; }
+.cab-pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; background: var(--cab-signal-soft); color: var(--cab-signal-deep); }
+.cab-config .config-block { margin: 12px 0; }
+
+/* Plan cards: quiet, price leads */
+.cab-plans { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.cab-plan { background: var(--cab-paper); border: 1px solid var(--cab-line); border-radius: var(--cab-radius); padding: 20px; display: flex; flex-direction: column; gap: 8px; }
+.cab-plan.current { border: 2px solid var(--cab-signal); }
+.cab-plan-name { font-weight: 700; }
+.cab-plan-price { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.cab-plan-price small { font-size: 0.9rem; font-weight: 400; color: var(--cab-muted); }
+.cab-plan-days { color: var(--cab-muted); font-size: 0.87rem; }
+
+/* Key-value rows (referral, profile facts) */
+.cab-kv { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--cab-line); font-size: 0.92rem; }
+.cab-kv:last-child { border-bottom: none; }
+.cab-kv dt { color: var(--cab-muted); }
+.cab-kv dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Referral band */
+.cab-referral { background: var(--cab-signal-soft); border-radius: var(--cab-radius); padding: 20px 22px; }
+.cab-referral .form-control { background: #fff; }
+
+/* Empty states: invitation to act */
+.cab-empty { border: 1px dashed var(--cab-line); border-radius: var(--cab-radius); padding: 26px 22px; text-align: left; color: var(--cab-muted); }
+.cab-empty strong { display: block; color: var(--cab-ink); font-size: 1.02rem; margin-bottom: 4px; }
+
+/* Narrow forms */
+.cab-narrow { max-width: 560px; }
+.cab-form-card { background: var(--cab-paper); border: 1px solid var(--cab-line); border-radius: var(--cab-radius); padding: 22px; }
