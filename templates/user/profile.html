@@ -1,52 +1,42 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="cab-wrap">
-  <div class="page-title">Профиль</div>
-  <div class="page-sub">Личные данные, автопродление и уведомления.</div>
+<div class="page-title">Профиль</div>
+<div class="page-sub">Редактирование личных данных и пароля.</div>
 
-  <div class="cab-section">
-    <div class="cab-section-head">
-      <h2 class="cab-section-title">Автопродление</h2>
-    </div>
-    <div class="cab-form-card">
-      <form method="post" action="/dashboard/profile/auto-renewal/toggle">
-        <div class="form-group" style="display:flex; gap:12px; align-items:flex-start;">
-          <label class="switch">
-            <input type="checkbox" name="enabled" value="1" {% if app_user.auto_renewal %}checked{% endif %} onchange="this.form.submit()">
-            <span class="slider"></span>
-          </label>
-          <div>
-            <strong>{% if app_user.auto_renewal %}Включено{% else %}Выключено{% endif %}</strong>
-            {% if app_user.auto_renewal_at %}
-              <div class="muted" style="font-size: 0.85rem;">Включено: {{ app_user.auto_renewal_at[:10] }}</div>
+<div class="card" style="max-width:600px;">
+  {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+  
+  <div class="section-title">Автопродление подписки</div>
+  <div class="card" style="margin-bottom: 20px;">
+    <form method="post" action="/dashboard/profile/auto-renewal/toggle">
+      <div class="form-group">
+        <label class="switch">
+          <input type="checkbox" name="enabled" value="1" {% if app_user.auto_renewal %}checked{% endif %} onchange="this.form.submit()">
+          <span class="slider"></span>
+        </label>
+        <div style="margin-left: 12px;">
+          <strong>{% if app_user.auto_renewal %}Автопродление включено{% else %}Автопродление выключено{% endif %}</strong>
+          {% if app_user.auto_renewal_at %}
+            <div class="muted" style="font-size: 0.85rem;">Включено: {{ app_user.auto_renewal_at[:10] }}</div>
+          {% endif %}
+          <div class="muted" style="font-size: 0.85rem; margin-top: 4px;">
+            {% if app_user.auto_renewal %}
+            При выключении доступ сохранится до конца оплаченного периода. 
+            {% else %}
+            При включении автопродление начнётся с ближайшего дедлайна подписки.
             {% endif %}
-            <div class="muted" style="font-size: 0.85rem; margin-top: 4px;">
-              {% if app_user.auto_renewal %}
-              При выключении доступ сохранится до конца оплаченного периода.
-              {% else %}
-              При включении продление начнётся с ближайшего дедлайна подписки.
-              {% endif %}
-            </div>
           </div>
-          <input type="hidden" name="enabled" value="1">
         </div>
-      </form>
-    </div>
+        <input type="hidden" name="enabled" value="1">
+      </div>
+    </form>
   </div>
 
-  <div class="cab-section">
-    <div class="cab-section-head">
-      <h2 class="cab-section-title">Уведомления</h2>
-      {% if notifications %}
-      <form method="post" action="/dashboard/profile/notifications/read" style="margin: 0;">
-        <input type="hidden" name="all" value="1">
-        <button class="btn btn-ghost btn-sm" type="submit">Отметить все прочитанными</button>
-      </form>
-      {% endif %}
-    </div>
+  <div class="section-title">Уведомления</div>
+  <div class="card" style="margin-bottom: 20px;">
     {% if notifications %}
       {% for n in notifications %}
-        <div class="alert {% if n.kind == 'auto_renewal_failed' %}alert-warning{% else %}alert-info{% endif %}" style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+        <div class="alert {% if n.kind == 'auto_renewal_failed' %}alert-warning{% else %}alert-info{% endif %}" style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
           <div>
             <strong>{{ n.title }}</strong>
             <div style="font-size: 0.85rem;">{{ n.message }}</div>
@@ -55,61 +45,61 @@
           {% if not n.is_read %}
             <form method="post" action="/dashboard/profile/notifications/read" style="margin: 0;">
               <input type="hidden" name="notification_id" value="{{ n.id }}">
-              <button class="btn btn-outline btn-sm" type="submit">Прочитано</button>
+              <button class="btn btn-outline btn-sm" type="submit">✓</button>
             </form>
           {% endif %}
         </div>
       {% endfor %}
+      <div style="text-align: right;">
+        <form method="post" action="/dashboard/profile/notifications/read" style="margin: 0;">
+          <input type="hidden" name="all" value="1">
+          <button class="btn btn-ghost btn-sm" type="submit">Отметить все прочитанными</button>
+        </form>
+      </div>
     {% else %}
-      <div class="cab-empty"><strong>Тихо</strong>Новых уведомлений нет.</div>
+      <div class="muted">Нет уведомлений</div>
     {% endif %}
   </div>
 
-  <div class="cab-section">
-    <div class="cab-section-head">
-      <h2 class="cab-section-title">Личные данные</h2>
+  {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+  <form method="post" action="/dashboard/profile/save">
+    <div class="form-group">
+      <label>Логин (изменить нельзя)</label>
+      <input class="form-control" value="{{ user.username }}" disabled>
     </div>
-    <div class="cab-form-card cab-narrow">
-      <form method="post" action="/dashboard/profile/save">
-        <div class="form-group">
-          <label>Логин (изменить нельзя)</label>
-          <input class="form-control" value="{{ user.username }}" disabled>
-        </div>
-        <div class="form-group">
-          <label>Email</label>
-          <input class="form-control" type="email" name="email" value="{{ user.email or '' }}">
-        </div>
-        <div class="form-group">
-          <label>Telegram ник</label>
-          <input class="form-control" name="telegram_id" value="{{ user.telegram_id or '' }}" placeholder="Например @username">
-          <small class="muted">Нужен для входа через бота</small>
-        </div>
-        <hr style="border:none; border-top:1px solid var(--border); margin:20px 0;">
-        <div class="muted mb-2">Смена пароля</div>
-        <div class="form-group">
-          <label>Текущий пароль</label>
-          <div class="password-wrapper">
-            <input class="form-control" type="password" name="current_password" id="current_password">
-            <button type="button" class="password-toggle" data-target="current_password" aria-label="Показать пароль">
-              <svg class="eye-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              <svg class="eye-closed" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22"/></svg>
-            </button>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Новый пароль</label>
-          <div class="password-wrapper">
-            <input class="form-control" type="password" name="new_password" id="new_password">
-            <button type="button" class="password-toggle" data-target="new_password" aria-label="Показать пароль">
-              <svg class="eye-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              <svg class="eye-closed" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22"/></svg>
-            </button>
-          </div>
-        </div>
-        <button class="btn btn-primary" type="submit">Сохранить изменения</button>
-      </form>
+    <div class="form-group">
+      <label>Email</label>
+      <input class="form-control" type="email" name="email" value="{{ user.email or '' }}">
     </div>
-  </div>
+    <div class="form-group">
+      <label>Telegram ник</label>
+      <input class="form-control" name="telegram_id" value="{{ user.telegram_id or '' }}" placeholder="Например @username">
+      <small class="muted">Укажите @ник для входа через бота</small>
+    </div>
+    <hr style="border:none; border-top:1px solid var(--border); margin:20px 0;">
+    <div class="card-sub mb-2">Смена пароля</div>
+    <div class="form-group">
+      <label>Текущий пароль</label>
+      <div class="password-wrapper">
+        <input class="form-control" type="password" name="current_password" id="current_password">
+        <button type="button" class="password-toggle" data-target="current_password" aria-label="Показать пароль">
+          <svg class="eye-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-closed" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Новый пароль</label>
+      <div class="password-wrapper">
+        <input class="form-control" type="password" name="new_password" id="new_password">
+        <button type="button" class="password-toggle" data-target="new_password" aria-label="Показать пароль">
+          <svg class="eye-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-closed" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22"/></svg>
+        </button>
+      </div>
+    </div>
+    <button class="btn btn-primary" type="submit">Сохранить</button>
+  </form>
 </div>
 {% endblock %}
 {% block scripts %}
