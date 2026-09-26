@@ -31,6 +31,18 @@
       </div>
     </div>
     {% endif %}
+    <div class="header-nav">
+      {% if user %}
+        <a href="/dashboard">Кабинет</a>
+        <a href="/dashboard/orders">Заказы</a>
+        <a href="/dashboard/support">Поддержка</a>
+        {% if user.role == 'admin' %}
+          <a href="/admin">Админ</a>
+        {% elif user.role == 'support' %}
+          <a href="/admin/support">Поддержка</a>
+        {% endif %}
+      {% endif %}
+    </div>
   </div>
 </header>
 
