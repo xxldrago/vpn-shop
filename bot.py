@@ -159,12 +159,42 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     user = resolve_user(message.from_user.id)
     if user:
-        await message.answer(
-            f"Здравствуйте, <b>{user['username']}</b>! Добро пожаловать в магазин VPN 🛡️",
-            reply_markup=main_menu(),
+        # User exists — show profile card with inline menu
+        subscription = services.get_active_subscription(user["id"])
+        balance = services.get_balance(user["id"])
+
+        # Build profile text
+        status = "✅ Активна" if subscription else "❌ Отсутствует"
+        expires = f"\n⏳ До {subscription['expires_at'][:10]}" if subscription and subscription.get("expires_at") else ""
+        text = (
+            f"👤 {user['username']}\n"
+            f"📱 Подписка\n"
+            f"{status}{expires}\n"
+            f"🚀 Активировать тестовую подписку\n"
+            f"💰 Баланс: {balance} ₽"
         )
+        await message.answer(text, reply_markup=main_menu())
         return
-    await _start_registration(message, state)
+    # New user — сразу показываем меню и регистрируем автоматически
+    tg_login = message.from_user.username or message.from_user.full_name or ""
+    login = tg_login.replace(" ", "_").lower() or f"user_{message.from_user.id}"
+    await _auto_register(message, state, login)
+
+
+async def _auto_register(message: Message, state: FSMContext, login: str):
+    """Auto-register new user with Telegram username as login."""
+    try:
+        user = services.create_user(username=login, email="")
+        services.attach_telegram(user["id"], message.from_user.id)
+    except Exception as e:
+        logger.warning("Auto-reg failed: %s", e)
+        await message.answer("Не удалось создать аккаунт. Попробуйте позже.")
+        return
+    await state.clear()
+    await message.answer(
+        f"✅ Аккаунт <b>{login}</b> создан!\nВаш Telegram ID привязан.\nВыберите действие:",
+        reply_markup=main_menu(),
+    )
 
 
 @dp.message(F.text, StateFilter(RegisterState.username))
