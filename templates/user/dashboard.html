@@ -3,15 +3,6 @@
 <div class="page-title">Личный кабинет</div>
 <div class="page-sub">Добро пожаловать, {{ user.username }}!</div>
 
-{% if not used_trial %}
-<div class="alert alert-warning mt-2" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
-  <div><strong>Тестовый доступ</strong> — {{ trial_days }} дн. бесплатно, один раз. Обязательно нажмите, чтобы проверить работу сервиса.</div>
-  <form method="post" action="/payment/trial">
-    <button class="btn btn-success" type="submit">Активировать тестовую</button>
-  </form>
-</div>
-{% endif %}
-
 <div class="dash-cards mt-2">
   <div class="dash-card">
     <div class="dash-card-label">Подписка</div>
