@@ -122,7 +122,7 @@ def menu_btn():
 
 def main_menu():
     return _markup(
-        [InlineKeyboardButton(text="🛒 Магазин / Тарифы", callback_data=MenuCB(action="plans").pack())],
+        [InlineKeyboardButton(text="🛒 Купить подписку", callback_data=MenuCB(action="plans").pack())],
         [InlineKeyboardButton(text="📋 Мои подписки", callback_data=MenuCB(action="subs").pack()),
          InlineKeyboardButton(text="🔁 Продлить", callback_data=MenuCB(action="renew").pack())],
         [InlineKeyboardButton(text="🎁 Тестовый период", callback_data=MenuCB(action="trial").pack())],
