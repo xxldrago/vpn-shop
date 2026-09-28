@@ -136,6 +136,18 @@ def money(value) -> str:
     return fmt_rub(to_rub(value)) if value is not None else "—"
 
 
+def _days_word(n: int) -> str:
+    """Russian plural for 'day': 1 день, 3 дня, 5 дней."""
+    n = abs(int(n))
+    if 11 <= n % 100 <= 14:
+        return "дней"
+    if n % 10 == 1:
+        return "день"
+    if 2 <= n % 10 <= 4:
+        return "дня"
+    return "дней"
+
+
 def resolve_user(telegram_id) -> dict | None:
     return services.get_user_by_telegram(telegram_id)
 
@@ -603,8 +615,9 @@ async def m_trial(cb: CallbackQuery, state: FSMContext):
     if services.has_used_trial(user["id"]):
         await cb.message.edit_text("Тестовая подписка уже была использована.", reply_markup=main_menu())
         return
+    days = int(services.get_setting_float("test_subscription_days", 3))
     await cb.message.edit_text(
-        "🎁 Активировать <b>тестовый период</b>? Количество дней задаёт администратор.",
+        f"🎁 Активировать <b>тестовый период на {days} {_days_word(days)}</b>?",
         reply_markup=_markup(
             [InlineKeyboardButton(text="✅ Активировать", callback_data=MenuCB(action="trial_do").pack())],
             menu_btn(),
