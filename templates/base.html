@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{ brand.name }} — {{ brand.subtitle }}</title>
 <link rel="stylesheet" href="/static/style.css">
+<link rel="icon" type="image/png" href="/static/logo.png">
 </head>
 <body>
 
 <header class="header">
   <div class="header-inner">
-    <a class="brand" href="/">
-      <span class="brand-emoji">{{ brand.emoji }}</span>
-      <span class="brand-name">{{ brand.name }}</span>
+    <a class="brand" href="/" aria-label="{{ brand.name }}">
+      <img class="brand-logo" src="/static/logo.png" alt="{{ brand.name }}" height="28">
     </a>
     {% if user %}
     <div class="nav-user">
