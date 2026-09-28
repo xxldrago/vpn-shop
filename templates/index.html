@@ -15,6 +15,12 @@
     </div>
     <button class="btn btn-primary btn-block" type="submit">Войти</button>
   </form>
+  {% if tg_bot_username %}
+  <div class="center mt-2">
+    <div class="muted mb-1">или</div>
+    <script async src="https://telegram.org/js/telegram-widget.js?22" data-telegram-login="{{ tg_bot_username }}" data-size="large" data-auth-url="{{ tg_auth_url }}" data-request-access="write"></script>
+  </div>
+  {% endif %}
   <div class="center muted mt-2">
     Нет аккаунта? <a href="/register" style="color:var(--accent);">Зарегистрироваться</a>
   </div>

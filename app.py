@@ -174,7 +174,7 @@ def find_or_create_local_user(username: str, email: str = "", telegram_id: str =
 async def index(request: Request):
     if get_current_user(request):
         return RedirectResponse(url="/dashboard", status_code=303)
-    return render(request, "index.html")
+    return render(request, "index.html", **_tg_login_ctx())
 
 
 @app.get("/login", response_class=HTMLResponse)

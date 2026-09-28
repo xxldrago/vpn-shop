@@ -109,3 +109,27 @@ def test_get_telegram_bot_username_no_token(test_db):
     database.set_setting("telegram_bot_token", "")
     database.set_setting("telegram_bot_username", "")
     assert services.get_telegram_bot_username() == ""
+
+
+def test_index_page_shows_widget_when_configured(test_db):
+    database.set_setting("telegram_bot_token", TOKEN)
+    database.set_setting("telegram_bot_username", "threeSet_bot")
+    database.set_setting("shop_public_url", "https://my.3set.online")
+    from fastapi.testclient import TestClient as TC
+    client = TC(app_module.app)
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "telegram-widget.js" in resp.text
+    assert "threeSet_bot" in resp.text
+    assert "https://my.3set.online/auth/telegram" in resp.text
+
+
+def test_auth_pages_hide_widget_when_unconfigured(test_db):
+    database.set_setting("telegram_bot_token", "")
+    database.set_setting("telegram_bot_username", "")
+    from fastapi.testclient import TestClient as TC
+    client = TC(app_module.app)
+    for path in ("/", "/login", "/register"):
+        resp = client.get(path)
+        assert resp.status_code == 200
+        assert "telegram-widget.js" not in resp.text
