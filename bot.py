@@ -312,7 +312,7 @@ async def _show_plans(cb: CallbackQuery, state: FSMContext, renew: bool = False)
     for plan in plans:
         buttons.append([InlineKeyboardButton(
             f"{plan['name']} — {money(plan['price_rub'])} ₽ — {plan['duration_days']} дн.",
-            callback_data=f"plan:{plan['id']}:{renew}"
+            callback_data=str(plan['id'])
         )])
     kb = _markup(*buttons, [InlineKeyboardButton(text="◀️ Меню", callback_data=MenuCB(action="menu").pack())])
     await cb.message.edit_text(head, reply_markup=kb)
