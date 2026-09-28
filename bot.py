@@ -320,11 +320,17 @@ async def _show_plans(cb: CallbackQuery, state: FSMContext, renew: bool = False)
 
 @dp.callback_query(PlanCB.filter())
 async def on_plan(cb: CallbackQuery, state: FSMContext):
+    logger.info(f"PlanCB clicked: cb.data={cb.data}")
+    try:
+        plan_id = PlanCB.unpack(cb.data).id
+    except Exception as e:
+        logger.error(f"PlanCB unpack failed: {e}, data={cb.data}")
+        await cb.answer("Ошибка обработки тарифа", show_alert=True)
+        return
     user = resolve_user(cb.from_user.id)
     if not user:
         await _need_account(cb)
         return
-    plan_id = PlanCB.unpack(cb.data).id
     plan = services.get_plan(plan_id, active_only=True)
     if not plan:
         await cb.answer("Тариф недоступен", show_alert=True)
@@ -338,6 +344,7 @@ async def on_plan(cb: CallbackQuery, state: FSMContext):
         f"Введите количество пользователей (по умолчанию 1):",
         reply_markup=_markup([InlineKeyboardButton(text="1", callback_data=MenuCB(action="qty_1").pack())]),
     )
+
 
 
 @dp.callback_query(MenuCB.filter(F.action.startswith("qty_")))
