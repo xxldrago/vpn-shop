@@ -426,3 +426,72 @@ table .btn { white-space: nowrap; }
 .action-label { font-size: 14px; font-weight: 500; color: var(--text-main); }
 .action-link { font-size: 14px; color: var(--primary); text-decoration: none; }
 .action-link:hover { text-decoration: underline; }
+
+/* ============================================================
+   Cabinet "3set" system — matches 3set.online landing aesthetic.
+   Scoped under .lnd : admin/auth pages unaffected.
+   ============================================================ */
+.lnd {
+  --lnd-bg: #f6f4ee; --lnd-panel: #ffffff; --lnd-panel2: #fbfaf5;
+  --lnd-line: #e4dfd1; --lnd-line2: #cec7b4;
+  --lnd-ink: #0e1512; --lnd-mut: #5b645e; --lnd-dim: #8f968f;
+  --lnd-lime: #b7ff45; --lnd-green: #0c4f36; --lnd-lime-soft: rgba(143,212,31,.14);
+  --lnd-cyan: #0d8a96;
+  --lnd-disp: 'Unbounded', sans-serif; --lnd-body: 'Manrope', sans-serif; --lnd-mono: 'JetBrains Mono', monospace;
+  --lnd-shadow: 0 24px 60px -28px rgba(24,30,24,.22);
+  font-family: var(--lnd-body);
+}
+.lnd .lnd-kicker { font-family: var(--lnd-mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--lnd-green); display: inline-flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+.lnd .lnd-kicker::before { content: "//"; color: var(--lnd-dim); }
+.lnd h2.lnd-h { font-family: var(--lnd-disp); font-size: clamp(1.2rem,3vw,1.8rem); margin-bottom: 6px; color: var(--lnd-ink); }
+.lnd .lnd-sub { color: var(--lnd-mut); margin-bottom: 26px; }
+/* buttons (scoped, do not touch global .btn) */
+.lnd .btn { display: inline-flex; align-items: center; gap: 10px; font-family: var(--lnd-disp); font-weight: 500; font-size: 13px; letter-spacing: .04em; padding: 15px 24px; border-radius: 8px; border: none; cursor: pointer; transition: transform .25s, box-shadow .25s, background .25s; white-space: nowrap; }
+.lnd .btn-solid { background: var(--lnd-ink); color: var(--lnd-lime); box-shadow: 0 18px 40px -14px rgba(14,21,18,.45); }
+.lnd .btn-solid:hover { transform: translateY(-3px); }
+.lnd .btn-lime { background: var(--lnd-lime); color: var(--lnd-ink); }
+.lnd .btn-lime:hover { transform: translateY(-3px); }
+.lnd .btn-ghost { border: 1px solid var(--lnd-line2); color: var(--lnd-ink); background: rgba(255,255,255,.5); }
+.lnd .btn-ghost:hover { border-color: var(--lnd-green); color: var(--lnd-green); }
+.lnd .btn-sm { padding: 9px 15px; font-size: 11px; }
+.lnd .btn-block { width: 100%; justify-content: center; }
+/* hero: ink status panel */
+.lnd-hero { background: var(--lnd-ink); color: #e6efe4; border-radius: 20px; padding: clamp(28px,4vw,44px); position: relative; overflow: hidden; margin-bottom: 40px; }
+.lnd-hero::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(183,255,69,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(183,255,69,.07) 1px,transparent 1px); background-size: 34px 34px; }
+.lnd-hero-grid { position: relative; display: grid; gap: 26px; }
+@media (min-width: 760px) { .lnd-hero-grid { grid-template-columns: 1.4fr 1fr 1fr; align-items: center; } }
+.lnd-hero-label { font-family: var(--lnd-mono); font-size: 11px; letter-spacing: .12em; color: #8fa094; margin-bottom: 8px; }
+.lnd-hero-title { font-family: var(--lnd-disp); font-size: clamp(1.3rem,3vw,1.9rem); color: #fff; margin: 8px 0 6px; }
+.lnd-hero-sub { color: #b6c3b7; font-size: .92rem; }
+.lnd-signal { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; color: var(--lnd-lime); }
+.lnd-signal.off { color: #f5c86e; }
+.lnd-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--lnd-lime); animation: lnd-pulse 2s infinite; }
+.lnd-signal.off .lnd-dot { background: #f5c86e; animation: none; }
+@keyframes lnd-pulse { 70% { box-shadow: 0 0 0 9px rgba(183,255,69,0); } 100% { box-shadow: 0 0 0 0 rgba(183,255,69,0); } }
+@media (prefers-reduced-motion: reduce) { .lnd-dot { animation: none; } }
+.lnd-hero-metric { font-family: var(--lnd-disp); font-size: clamp(1.4rem,3vw,2rem); color: #fff; font-variant-numeric: tabular-nums; }
+.lnd-hero .btn-ghost { border-color: rgba(230,239,228,.3); color: #e6efe4; background: transparent; }
+.lnd-hero .btn-ghost:hover { border-color: var(--lnd-lime); color: var(--lnd-lime); }
+/* plans */
+.lnd-plans { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); }
+.lnd-plan { border: 1px solid var(--lnd-line); border-radius: 14px; background: var(--lnd-panel); padding: 28px 26px; display: flex; flex-direction: column; gap: 8px; transition: transform .3s, box-shadow .3s; }
+.lnd-plan:hover { transform: translateY(-5px); box-shadow: var(--lnd-shadow); }
+.lnd-plan-name { font-family: var(--lnd-disp); font-size: 15px; }
+.lnd-plan-desc { font-size: .85rem; color: var(--lnd-mut); }
+.lnd-plan-price { font-family: var(--lnd-disp); font-size: 1.7rem; font-variant-numeric: tabular-nums; margin-top: 6px; }
+.lnd-plan-price small { font-family: var(--lnd-mono); font-size: .8rem; color: var(--lnd-green); }
+.lnd-plan-days { font-family: var(--lnd-mono); font-size: 11px; color: var(--lnd-dim); letter-spacing: .06em; }
+.lnd-plan .form-control { font-family: var(--lnd-body); }
+/* configs */
+.lnd-cfg { background: var(--lnd-panel); border: 1px solid var(--lnd-line); border-radius: 14px; padding: 22px; margin-bottom: 14px; }
+.lnd-cfg-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.lnd-cfg-name { font-family: var(--lnd-disp); font-size: 14px; }
+.lnd-chip { font-family: var(--lnd-mono); font-size: 10.5px; letter-spacing: .08em; color: var(--lnd-cyan); border: 1px solid rgba(13,138,150,.3); background: rgba(13,138,150,.07); padding: 5px 11px; border-radius: 100px; }
+/* referral band */
+.lnd-ref { border: 1px solid rgba(12,79,54,.3); background: rgba(143,212,31,.14); border-radius: 14px; padding: 24px; }
+.lnd-kv { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0 0; font-size: .9rem; }
+.lnd-kv dt { color: var(--lnd-mut); } .lnd-kv dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+/* trial band */
+.lnd-trial { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; border: 1px dashed var(--lnd-line2); border-radius: 12px; padding: 16px 20px; background: rgba(255,255,255,.6); margin-bottom: 24px; }
+/* section spacing */
+.lnd-sec { margin: 44px 0; }

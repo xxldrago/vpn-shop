@@ -1,113 +1,132 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-title">Личный кабинет</div>
-<div class="page-sub">Добро пожаловать, {{ user.username }}!</div>
+<div class="lnd">
+  <span class="lnd-kicker">Личный кабинет</span>
+  <h2 class="lnd-h">Здравствуйте, {{ user.username }}</h2>
+  <p class="lnd-sub">Защита, срок и оплата — всё в одном месте.</p>
 
-<div class="dash-cards mt-2">
-  <div class="dash-card">
-    <div class="dash-card-label">Подписка</div>
-    <div class="dash-card-value" style="font-size:1.1rem;">
-      {% if subscription %}
-        <span class="badge badge-success">Активна</span>
-        {% if subscription.expires_at %}
-          <span class="badge badge-info mt-1">До {{ subscription.expires_at[:10] }}</span>
-        {% endif %}
-      {% else %}
-        <span class="badge badge-dim">Нет подписки</span>
-      {% endif %}
-    </div>
-  </div>
-  <div class="dash-card">
-    <div class="dash-card-label">Конфиги</div>
-    <div class="dash-card-value" style="font-size:1.6rem;">{{ connections|length }}</div>
-  </div>
-  <div class="dash-card dash-card-balance">
-    <div class="dash-card-label">Баланс</div>
-    <div class="dash-card-value" style="font-size:1.4rem;">{{ "%.2f"|format(balance) }} ₽</div>
-    <a class="btn btn-primary btn-sm mt-1" href="/dashboard/balance">Пополнить</a>
-  </div>
-</div>
-
-{% if subscription %}
-<div class="section-title">Продление / смена тарифа</div>
-<div class="card-sub mb-1">Выберите тариф, чтобы продлить подписку или сменить план. При продлении срок добавляется к текущему.</div>
-{% else %}
-<div class="section-title">Доступные тарифы</div>
-{% endif %}
-<div class="plans-row">
-  {% for plan in plans %}
-  <div class="card">
-    <div class="card-title">{{ plan.name }}</div>
-    <div class="card-sub">{{ plan.description }}</div>
-    <div class="plan-price" data-base-price="{{ plan.price_rub }}">{{ "%.0f"|format(plan.price_rub) }} <small>₽</small></div>
-    <div class="plan-days">Доступ на {{ plan.duration_days }} дн.</div>
-    <div class="form-group mt-2">
-      <label class="lbl" style="font-size:0.85rem;">Количество пользователей</label>
-      <input type="number" name="quantity" min="1" max="10" value="1" class="input qty-input" data-plan-id="{{ plan.id }}">
-    </div>
-    <form method="post" action="/orders/create" class="mt-2">
-      <input type="hidden" name="plan_id" value="{{ plan.id }}">
-      <input type="hidden" name="quantity" value="1" class="qty-hidden">
-      <div class="form-group" style="margin-bottom:8px;">
-        <input class="form-control" name="promo" placeholder="Промокод (необязательно)">
-      </div>
-      <button class="btn btn-primary btn-block" type="submit">{% if subscription %}Продлить{% else %}Оплатить{% endif %}</button>
+  {% if not used_trial %}
+  <div class="lnd-trial">
+    <div><strong>Тестовый доступ</strong> — {{ trial_days }} дн. бесплатно, один раз. Проверьте сервис перед покупкой.</div>
+    <form method="post" action="/payment/trial">
+      <button class="btn btn-lime btn-sm" type="submit">Активировать тестовую</button>
     </form>
   </div>
-  {% endfor %}
-</div>
+  {% endif %}
 
-{% if connections %}
-<div class="section-title">Ваши конфигурации ({{ connections|length }})</div>
-<div class="grid">
-  {% for c in connections %}
-  <div class="card">
-    <div class="card-title" style="font-size:1.05rem;">{{ c.name }}</div>
-    <div class="card-sub mb-1">
-      {{ c.protocol }}
-      {% if c.vpn_link %}<span class="badge badge-info">Ссылка доступна</span>{% endif %}
-    </div>
-    <div class="config-block" id="cfg-{{ loop.index }}">{{ c.config }}</div>
-    <div class="actions mt-1">
-      <button class="btn btn-outline btn-sm" onclick="copyCfg('cfg-{{ loop.index }}', this)">Копировать</button>
-      <a class="btn btn-outline btn-sm" href="/orders/{{ subscription.id }}/config/{{ loop.index0 }}/download">.conf</a>
-      {% if c.vpn_link %}
-      <button class="btn btn-outline btn-sm" data-link="{{ c.vpn_link }}" onclick="copyLink(this)">vpn-ссылка</button>
-      {% endif %}
-      {% if c.vpn_qr_chunks and c.vpn_qr_chunks|length %}
-      <a class="btn btn-primary btn-sm" href="/orders/{{ subscription.id }}/config/{{ loop.index0 }}/qr">QR-код</a>
-      {% endif %}
+  <div class="lnd-hero">
+    <div class="lnd-hero-grid">
+      <div>
+        <div class="lnd-hero-label">Защита</div>
+        {% if subscription %}
+        <div class="lnd-signal"><span class="lnd-dot"></span>Включена</div>
+        <div class="lnd-hero-title">{{ subscription.plan_name or 'Подписка' }}</div>
+        <div class="lnd-hero-sub">Активна{% if subscription.expires_at %} до {{ subscription.expires_at[:10] }}{% endif %}</div>
+        {% else %}
+        <div class="lnd-signal off"><span class="lnd-dot"></span>Выключена</div>
+        <div class="lnd-hero-title">Нет подписки</div>
+        <div class="lnd-hero-sub">Оформите тариф ниже, чтобы включиться</div>
+        {% endif %}
+      </div>
+      <div>
+        <div class="lnd-hero-label">Конфигурации</div>
+        <div class="lnd-hero-metric">{{ connections|length }}</div>
+        <div class="lnd-hero-sub">Готовы к подключению</div>
+      </div>
+      <div>
+        <div class="lnd-hero-label">Баланс</div>
+        <div class="lnd-hero-metric">{{ "%.2f"|format(balance) }} ₽</div>
+        <div class="mt-1"><a class="btn btn-lime btn-sm" href="/dashboard/balance">Пополнить</a></div>
+      </div>
     </div>
   </div>
-  {% endfor %}
-</div>
-{% endif %}
 
-{% if referral_enabled and referral_code %}
-<div class="section-title">Реферальная программа</div>
-<div class="card">
-  <div class="card-sub mb-1">Приглашайте друзей и получайте бонусы на баланс. За каждого первого клиента — вознаграждение, а за каждое последующее пополнение — процент комиссии.</div>
-  <div class="actions" style="flex-wrap:wrap; gap:8px; align-items:center;">
-    <input class="form-control" readonly value="{{ referral_link }}" id="reflink" style="flex:1; min-width:220px;">
-    <button class="btn btn-primary btn-sm" onclick="copyTextV2('reflink','Ссылка скопирована')">Копировать ссылку</button>
+  <div class="lnd-sec">
+    <span class="lnd-kicker">{% if subscription %}Продление{% else %}Тарифы{% endif %}</span>
+    <h2 class="lnd-h">{% if subscription %}Продлить или сменить план{% else %}Выберите тариф{% endif %}</h2>
+    <p class="lnd-sub">При продлении срок добавляется к текущему.</p>
+    <div class="lnd-plans" style="margin-top:22px;">
+      {% for plan in plans %}
+      <div class="lnd-plan">
+        <div class="lnd-plan-name">{{ plan.name }}</div>
+        <div class="lnd-plan-desc">{{ plan.description }}</div>
+        <div class="lnd-plan-price" data-base-price="{{ plan.price_rub }}">{{ "%.0f"|format(plan.price_rub) }} <small>₽</small></div>
+        <div class="lnd-plan-days">ДОСТУП НА {{ plan.duration_days }} ДН.</div>
+        <div class="form-group mt-2">
+          <label class="lbl" style="font-size:0.85rem;">Количество пользователей</label>
+          <input type="number" name="quantity" min="1" max="10" value="1" class="input qty-input" data-plan-id="{{ plan.id }}">
+        </div>
+        <form method="post" action="/orders/create" class="mt-2">
+          <input type="hidden" name="plan_id" value="{{ plan.id }}">
+          <input type="hidden" name="quantity" value="1" class="qty-hidden">
+          <div class="form-group" style="margin-bottom:8px;">
+            <input class="form-control" name="promo" placeholder="Промокод (необязательно)">
+          </div>
+          <button class="btn btn-solid btn-block" type="submit">{% if subscription %}Продлить{% else %}Оплатить{% endif %}</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
   </div>
-  <div class="card-sub mt-1">Ваш код: <strong>{{ referral_code }}</strong> · Приглашено: <strong>{{ referred_paid_count }}</strong></div>
+
+  {% if connections %}
+  <div class="lnd-sec">
+    <span class="lnd-kicker">Подключения · {{ connections|length }}</span>
+    <h2 class="lnd-h">Ваши конфигурации</h2>
+    {% for c in connections %}
+    <div class="lnd-cfg">
+      <div class="lnd-cfg-top">
+        <span class="lnd-cfg-name">{{ c.name }}</span>
+        <span class="lnd-chip">{{ c.protocol }}</span>
+      </div>
+      <div class="config-block" id="cfg-{{ loop.index }}">{{ c.config }}</div>
+      <div class="actions mt-1">
+        <button class="btn btn-ghost btn-sm" onclick="copyCfg('cfg-{{ loop.index }}', this)">Копировать</button>
+        <a class="btn btn-ghost btn-sm" href="/orders/{{ subscription.id }}/config/{{ loop.index0 }}/download">Скачать .conf</a>
+        {% if c.vpn_link %}
+        <button class="btn btn-ghost btn-sm" data-link="{{ c.vpn_link }}" onclick="copyLink(this)">Скопировать ссылку</button>
+        {% endif %}
+        {% if c.vpn_qr_chunks and c.vpn_qr_chunks|length %}
+        <a class="btn btn-solid btn-sm" href="/orders/{{ subscription.id }}/config/{{ loop.index0 }}/qr">QR-код</a>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if referral_enabled and referral_code %}
+  <div class="lnd-sec">
+    <span class="lnd-kicker">Реферальная программа</span>
+    <h2 class="lnd-h">Приглашайте — получайте бонусы</h2>
+    <div class="lnd-ref" style="margin-top:22px;">
+      <p class="muted mb-1" style="font-size:0.9rem;">За каждого первого клиента — вознаграждение на баланс, за каждое следующее пополнение — процент комиссии.</p>
+      <div class="actions" style="flex-wrap:wrap; gap:8px; align-items:center;">
+        <input class="form-control" readonly value="{{ referral_link }}" id="reflink" style="flex:1; min-width:220px;">
+        <button class="btn btn-solid btn-sm" onclick="copyTextV2('reflink','Ссылка скопирована')">Копировать ссылку</button>
+      </div>
+      <dl class="mt-2" style="margin-bottom:0;">
+        <div class="lnd-kv"><dt>Ваш код</dt><dd>{{ referral_code }}</dd></div>
+        <div class="lnd-kv"><dt>Оплативших друзей</dt><dd>{{ referred_paid_count }}</dd></div>
+      </dl>
+    </div>
+  </div>
+  {% endif %}
 </div>
-{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
 function copyCfg(id, btn) {
   var text = document.getElementById(id).innerText;
   navigator.clipboard.writeText(text).then(function() {
-    var old = btn.textContent; btn.textContent = 'Скопировано!';
+    var old = btn.textContent; btn.textContent = 'Скопировано';
     setTimeout(function(){ btn.textContent = old; }, 1500);
   });
 }
 function copyLink(btn) {
   var url = btn.getAttribute('data-link');
   navigator.clipboard.writeText(url).then(function() {
-    var old = btn.textContent; btn.textContent = 'Скопировано!';
+    var old = btn.textContent; btn.textContent = 'Скопировано';
     setTimeout(function(){ btn.textContent = old; }, 1500);
   });
 }
@@ -119,10 +138,9 @@ function copyTextV2(id, msg) {
 // Quantity price calculator
 document.querySelectorAll('.qty-input').forEach(function(input) {
   input.addEventListener('input', function() {
-    var planId = this.dataset.planId;
     var qty = Math.max(1, parseInt(this.value) || 1);
-    var card = this.closest('.card');
-    var priceEl = card.querySelector('.plan-price');
+    var card = this.closest('.lnd-plan');
+    var priceEl = card.querySelector('.lnd-plan-price');
     var basePrice = parseFloat(priceEl.dataset.basePrice) || 0;
     var total = basePrice * qty;
     priceEl.innerHTML = total.toFixed(0) + ' <small>₽</small>';
