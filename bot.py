@@ -333,7 +333,7 @@ async def on_plan(cb: CallbackQuery, state: FSMContext):
     renew = data.get("renew", False)
     await state.update_data(plan_id=plan_id, renew=renew)
     await state.set_state(BuyState.quantity)
-    await cb.message.answer(
+    await cb.message.edit_text(
         f"✅ <b>{plan['name']}</b> — {money(plan['price_rub'])} / {plan['duration_days']} дн.\n\n"
         f"Введите количество пользователей (по умолчанию 1):",
         reply_markup=_markup([InlineKeyboardButton(text="1", callback_data=MenuCB(action="qty_1").pack())]),
@@ -461,7 +461,7 @@ async def on_pay_choice(cb: CallbackQuery, state: FSMContext):
         try:
             order = services.create_order(user["id"], plan_id, promo, method="balance", quantity=quantity)
         except services.OrderError as e:
-            await cb.message.answer(f"❌ {e}", reply_markup=main_menu())
+            await cb.message.edit_text(f"❌ {e}", reply_markup=main_menu())
             return
         await _fulfill_and_ack(cb, order)
         return
@@ -473,7 +473,7 @@ async def on_pay_choice(cb: CallbackQuery, state: FSMContext):
             order["id"], f"Оплата тарифа «{order['plan_name']}» ×{quantity}", order["payable"]
         )
     except services.OrderError as e:
-        await cb.message.answer(f"❌ {e}", reply_markup=main_menu())
+        await cb.message.edit_text(f"❌ {e}", reply_markup=main_menu())
         return
     txt = (
         f"💳 <b>Заказ создан</b>\n"
@@ -482,7 +482,7 @@ async def on_pay_choice(cb: CallbackQuery, state: FSMContext):
         f"К оплате: <b>{money(order['payable'])}</b>\n\n"
         f"Нажмите Оплатить, чтобы перейти к оплате:"
     )
-    await cb.message.answer(txt, reply_markup=_markup(
+    await cb.message.edit_text(txt, reply_markup=_markup(
         [InlineKeyboardButton(text="💳 Оплатить", url=pay_url)],
         menu_btn(),
     ))
@@ -561,7 +561,7 @@ async def m_subs(cb: CallbackQuery, state: FSMContext):
         btn_text = "🔄 Автопродление: ВКЛ"
         btn_cb = RenewCB(enabled=True).pack()
     
-    await cb.message.answer("\n".join(lines), reply_markup=_markup(
+    await cb.message.edit_text("\n".join(lines), reply_markup=_markup(
         [InlineKeyboardButton(text=btn_text, callback_data=btn_cb)],
         menu_btn(),
     ))
@@ -594,9 +594,9 @@ async def m_trial(cb: CallbackQuery, state: FSMContext):
         await _need_account(cb)
         return
     if services.has_used_trial(user["id"]):
-        await cb.message.answer("Тестовая подписка уже была использована.", reply_markup=main_menu())
+        await cb.message.edit_text("Тестовая подписка уже была использована.", reply_markup=main_menu())
         return
-    await cb.message.answer(
+    await cb.message.edit_text(
         "🎁 Активировать <b>тестовый период</b>? Количество дней задаёт администратор.",
         reply_markup=_markup(
             [InlineKeyboardButton(text="✅ Активировать", callback_data=MenuCB(action="trial_do").pack())],
@@ -611,10 +611,10 @@ async def trial_do(cb: CallbackQuery, state: FSMContext):
     try:
         res = await services.activate_trial(user["id"])
     except services.OrderError as e:
-        await cb.message.answer(f"❌ {e}", reply_markup=main_menu())
+        await cb.message.edit_text(f"❌ {e}", reply_markup=main_menu())
         return
     days = services.get_setting_float("test_subscription_days", 3)
-    await cb.message.answer(
+    await cb.message.edit_text(
         f"🎉 <b>Тестовая подписка активирована!</b>\nДо {res['expires_at'][:10]}.\n"
         f"Конфиги уже созданы — смотрите «Мои подписки».",
         reply_markup=main_menu(),
@@ -639,7 +639,7 @@ async def m_balance(cb: CallbackQuery, state: FSMContext):
             lines.append(f"{sign}{money(t['amount'])} — {t.get('note') or t['kind']} ({t.get('created_at','')[:10]})")
     else:
         lines.append("Операций пока нет.")
-    await cb.message.answer(
+    await cb.message.edit_text(
         "\n".join(lines),
         reply_markup=_markup(
             [InlineKeyboardButton(text="➕ Пополнить кошелёк", callback_data=MenuCB(action="topup").pack())],
@@ -655,7 +655,7 @@ async def m_topup(cb: CallbackQuery, state: FSMContext):
         await _need_account(cb)
         return
     await state.set_state(BalanceState.amount)
-    await cb.message.answer("Укажите сумму пополнения кошелька в рублях (например: 300):")
+    await cb.message.edit_text("Укажите сумму пополнения кошелька в рублях (например: 300):")
 
 
 @dp.message(F.text, StateFilter(BalanceState.amount))
@@ -701,11 +701,11 @@ async def m_referral(cb: CallbackQuery, state: FSMContext):
         await _need_account(cb)
         return
     if not services.get_setting_bool("referral_enabled", True):
-        await cb.message.answer("Реферальная программа выключена.", reply_markup=main_menu())
+        await cb.message.edit_text("Реферальная программа выключена.", reply_markup=main_menu())
         return
     site = services.get_site_url()
     link = f"{site}/register?ref={user['referral_code']}"
-    await cb.message.answer(
+    await cb.message.edit_text(
         f"🔗 <b>Реферальная система</b>\n\n"
         f"Ваш код: <code>{user['referral_code']}</code>\n"
         f"Ваша ссылка: <code>{link}</code>\n\n"
@@ -738,7 +738,7 @@ async def m_tickets(cb: CallbackQuery, state: FSMContext):
         lines.append("У вас пока нет обращений.")
     buttons.append([InlineKeyboardButton(text="➕ Создать обращение", callback_data=MenuCB(action="ticket_new").pack())])
     buttons.append(menu_btn())
-    await cb.message.answer("\n".join(lines), reply_markup=_markup(*buttons))
+    await cb.message.edit_text("\n".join(lines), reply_markup=_markup(*buttons))
 
 
 @dp.callback_query(MenuCB.filter(F.action == "ticket_new"))
@@ -748,7 +748,7 @@ async def ticket_new(cb: CallbackQuery, state: FSMContext):
         await _need_account(cb)
         return
     await state.set_state(TicketState.subject)
-    await cb.message.answer("✍️ Опишите тему обращения одной строкой:")
+    await cb.message.edit_text("✍️ Опишите тему обращения одной строкой:")
 
 
 @dp.message(F.text, StateFilter(TicketState.subject))
@@ -786,12 +786,12 @@ async def ticket_open(cb: CallbackQuery, state: FSMContext):
     if ticket["status"] == "open":
         await state.update_data(ticket_id=tid)
         await state.set_state(TicketState.chat)
-        await cb.message.answer("\n".join(lines), reply_markup=_markup(
+        await cb.message.edit_text("\n".join(lines), reply_markup=_markup(
             [InlineKeyboardButton(text="Написать сообщение…", callback_data=MenuCB(action="ticket_reply").pack())],
             menu_btn(),
         ))
     else:
-        await cb.message.answer("\n".join(lines), reply_markup=_markup(menu_btn()))
+        await cb.message.edit_text("\n".join(lines), reply_markup=_markup(menu_btn()))
 
 
 @dp.message(F.text, StateFilter(TicketState.chat))
@@ -808,14 +808,14 @@ async def ticket_chat(message: Message, state: FSMContext):
 
 @dp.callback_query(MenuCB.filter(F.action == "ticket_reply"))
 async def ticket_reply_hint(cb: CallbackQuery, state: FSMContext):
-    await cb.message.answer("Введите текст сообщения (или нажмите /start для выхода из чата):")
+    await cb.message.edit_text("Введите текст сообщения (или нажмите /start для выхода из чата):")
 
 
 # ---------------- Need account / not found ----------------
 
 async def _need_account(cb: CallbackQuery):
     await cb.answer()
-    await cb.message.answer(
+    await cb.message.edit_text(
         "Нужно <b>зарегистрироваться</b> или войти в существующий ЛК.\n"
         "Если у вас уже есть аккаунт в магазине — укажите в нём в профиле ваш Telegram ID "
         "(кнопка «Войти», раздел «Профиль»).\n\n"
