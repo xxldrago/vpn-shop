@@ -311,7 +311,7 @@ async def _show_plans(cb: CallbackQuery, state: FSMContext, renew: bool = False)
     buttons = []
     for plan in plans:
         buttons.append([InlineKeyboardButton(
-            f"{plan['name']} — {money(plan['price_rub'])} ₽ — {plan['duration_days']} дн.",
+            text=f"{plan['name']} — {money(plan['price_rub'])} ₽ — {plan['duration_days']} дн.",
             callback_data=PlanCB(id=plan['id']).pack()
         )])
     kb = _markup(*buttons, [InlineKeyboardButton(text="◀️ Меню", callback_data=MenuCB(action="menu").pack())])
