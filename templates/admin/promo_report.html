@@ -1,29 +1,32 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-title">Отчёт по промокодам</div>
-<div class="page-sub">Количество заказов, скидка и выручка на один код (только оплаченные заказы).</div>
+<div class="lnd">
+  <span class="lnd-kicker">Админка · отчёт</span>
+  <h2 class="lnd-h">Отчёт по промокодам</h2>
+  <p class="lnd-sub">Количество заказов, скидка и выручка на один код (только оплаченные заказы).</p>
 
-<div class="card">
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Код</th><th>Заказы</th><th>Скидка (ориг. − оплачено)</th><th>Выручка после промо</th></tr></thead>
-      <tbody>
-        {% for r in rows %}
-        <tr>
-          <td><strong>{{ r.code }}</strong></td>
-          <td>{{ r.orders_count }}</td>
-          <td>{{ "%.2f"|format(r.total_discount) }} ₽</td>
-          <td>{{ "%.2f"|format(r.revenue_after_promo) }} ₽</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="4" class="muted center">Отчёта пока нет — создайте промокоды</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Код</th><th>Заказы</th><th>Скидка (ориг. − оплачено)</th><th>Выручка после промо</th></tr></thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td><strong>{{ r.code }}</strong></td>
+            <td>{{ r.orders_count }}</td>
+            <td>{{ "%.2f"|format(r.total_discount) }} ₽</td>
+            <td>{{ "%.2f"|format(r.revenue_after_promo) }} ₽</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="muted center">Отчёта пока нет — создайте промокоды</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
-</div>
 
-<div class="mt-2">
-  <a class="btn btn-outline" href="/admin/promos">← Назад к промокодам</a>
+  <div class="mt-2">
+    <a class="btn btn-ghost" href="/admin/promos">Назад к промокодам</a>
+  </div>
 </div>
 {% endblock %}

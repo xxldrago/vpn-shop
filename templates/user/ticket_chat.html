@@ -1,33 +1,35 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-title">
-  {{ ticket.subject }}
-  {% if ticket.status == 'open' %}<span class="badge badge-warning">Открыт</span>
-  {% else %}<span class="badge badge-dim">Закрыт</span>{% endif %}
-</div>
-<div class="page-sub">Тикет #{{ ticket.id }}</div>
+<div class="lnd">
+  <span class="lnd-kicker">Кабинет · тикет #{{ ticket.id }}</span>
+  <h2 class="lnd-h">
+    {{ ticket.subject }}
+    {% if ticket.status == 'open' %}<span class="badge badge-warning">Открыт</span>
+    {% else %}<span class="badge badge-dim">Закрыт</span>{% endif %}
+  </h2>
 
-<div class="card">
-  <div class="chat-list">
-    {% for m in messages %}
-    <div class="chat-msg {% if m.sender_id == user.id %}me{% else %}them{% if m.sender_role == 'admin' or m.sender_role == 'support' %} agent{% endif %}{% endif %}">
-      <div class="meta">
-        {% if m.sender_role == 'user' %}Вы{% else %}Поддержка{% endif %} • {{ m.created_at[:16].replace('T', ' ') }}
+  <div class="card" style="max-width:720px;">
+    <div class="chat-list">
+      {% for m in messages %}
+      <div class="chat-msg {% if m.sender_id == user.id %}me{% else %}them{% if m.sender_role == 'admin' or m.sender_role == 'support' %} agent{% endif %}{% endif %}">
+        <div class="meta">
+          {% if m.sender_role == 'user' %}Вы{% else %}Поддержка{% endif %} • {{ m.created_at[:16].replace('T', ' ') }}
+        </div>
+        {{ m.message }}
       </div>
-      {{ m.message }}
+      {% endfor %}
     </div>
-    {% endfor %}
-  </div>
 
-  {% if ticket.status == 'open' %}
-  <form method="post" action="/dashboard/support/{{ ticket.id }}/message">
-    <div class="form-group">
-      <textarea class="form-control" name="message" rows="3" placeholder="Написать сообщение..." required></textarea>
-    </div>
-    <button class="btn btn-primary" type="submit">Отправить</button>
-  </form>
-  {% else %}
-  <div class="muted">Тикет закрыт.</div>
-  {% endif %}
+    {% if ticket.status == 'open' %}
+    <form method="post" action="/dashboard/support/{{ ticket.id }}/message">
+      <div class="form-group">
+        <textarea class="form-control" name="message" rows="3" placeholder="Написать сообщение..." required></textarea>
+      </div>
+      <button class="btn btn-primary" type="submit">Отправить</button>
+    </form>
+    {% else %}
+    <div class="muted">Тикет закрыт.</div>
+    {% endif %}
+  </div>
 </div>
 {% endblock %}

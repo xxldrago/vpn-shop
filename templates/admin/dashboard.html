@@ -1,200 +1,203 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-title">Панель администратора</div>
-<div class="page-sub">Статистика и управление системой.</div>
+<div class="lnd">
+  <span class="lnd-kicker">Админка · обзор</span>
+  <h2 class="lnd-h">Панель администратора</h2>
+  <p class="lnd-sub">Выручка и подписчики — всё на одном экране.</p>
 
-<div class="grid grid-4">
-  <div class="card stat">
-    <div class="stat-label">Выручка всего</div>
-    <div class="stat-value">{{ "%.0f"|format(total_revenue) }} ₽</div>
+  <div class="grid grid-4">
+    <div class="card stat">
+      <div class="stat-label">Выручка всего</div>
+      <div class="stat-value">{{ "%.0f"|format(total_revenue) }} ₽</div>
+    </div>
+    <div class="card stat">
+      <div class="stat-label">Сегодня</div>
+      <div class="stat-value">{{ "%.0f"|format(today_revenue) }} ₽</div>
+    </div>
+    <div class="card stat">
+      <div class="stat-label">Активных подписчиков</div>
+      <div class="stat-value">{{ active_subscribers|length }}</div>
+    </div>
+    <div class="card stat">
+      <div class="stat-label">Открытых тикетов</div>
+      <div class="stat-value">{{ open_tickets }}</div>
+    </div>
   </div>
-  <div class="card stat">
-    <div class="stat-label">Сегодня</div>
-    <div class="stat-value">{{ "%.0f"|format(today_revenue) }} ₽</div>
-  </div>
-  <div class="card stat">
-    <div class="stat-label">Активных подписчиков</div>
-    <div class="stat-value">{{ active_subscribers|length }}</div>
-  </div>
-  <div class="card stat">
-    <div class="stat-label">Открытых тикетов</div>
-    <div class="stat-value">{{ open_tickets }}</div>
-  </div>
-</div>
 
-<div class="grid grid-4 mt-2">
-  <div class="card stat">
-    <div class="stat-label">Оплачено заказов</div>
-    <div class="stat-value">{{ paid_orders }}</div>
+  <div class="grid grid-4 mt-2">
+    <div class="card stat">
+      <div class="stat-label">Оплачено заказов</div>
+      <div class="stat-value">{{ paid_orders }}</div>
+    </div>
+    <div class="card stat">
+      <div class="stat-label">Ожидают оплаты</div>
+      <div class="stat-value">{{ pending_orders }}</div>
+    </div>
   </div>
-  <div class="card stat">
-    <div class="stat-label">Ожидают оплаты</div>
-    <div class="stat-value">{{ pending_orders }}</div>
-  </div>
-</div>
 
-<div class="section-title">Навигация</div>
-<div class="grid grid-3">
-  <a class="card" href="/admin/plans"><div class="card-title">Тарифы</div><div class="card-sub">Управление планами</div></a>
-  <a class="card" href="/admin/promos"><div class="card-title">Промокоды</div><div class="card-sub">Скидки и акции</div></a>
-  <a class="card" href="/admin/orders"><div class="card-title">Заказы</div><div class="card-sub">Все заказы</div></a>
-  <a class="card" href="/admin/settings"><div class="card-title">Настройки</div><div class="card-sub">Platega, тестовый доступ</div></a>
-  <a class="card" href="/admin/support"><div class="card-title">Поддержка</div><div class="card-sub">Тикеты пользователей</div></a>
-  <a class="card" href="/"><div class="card-title">Сайт</div><div class="card-sub">Открыть магазин</div></a>
-</div>
-
-<div class="section-title">Выручка по дням (всего)</div>
-<div class="card">
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>День</th><th>Заказов</th><th>Выручка</th></tr></thead>
-      <tbody>
-        {% for row in by_day %}
-        <tr>
-          <td>{{ row.day }}</td>
-          <td>{{ row.orders_count }}</td>
-          <td>{{ "%.0f"|format(row.revenue) }} ₽</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="3" class="text-center">Нет данных</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="section-title">Навигация</div>
+  <div class="grid grid-3">
+    <a class="card" href="/admin/plans"><div class="card-title">Тарифы</div><div class="card-sub">Управление планами</div></a>
+    <a class="card" href="/admin/promos"><div class="card-title">Промокоды</div><div class="card-sub">Скидки и акции</div></a>
+    <a class="card" href="/admin/orders"><div class="card-title">Заказы</div><div class="card-sub">Все заказы</div></a>
+    <a class="card" href="/admin/settings"><div class="card-title">Настройки</div><div class="card-sub">Platega, тестовый доступ</div></a>
+    <a class="card" href="/admin/support"><div class="card-title">Поддержка</div><div class="card-sub">Тикеты пользователей</div></a>
+    <a class="card" href="/"><div class="card-title">Сайт</div><div class="card-sub">Открыть магазин</div></a>
   </div>
-</div>
 
-<div class="section-title">Выручка по месяцам</div>
-<div class="card">
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Месяц</th><th>Заказов</th><th>Выручка</th></tr></thead>
-      <tbody>
-        {% for row in by_month %}
-        <tr>
-          <td>{{ row.month }}</td>
-          <td>{{ row.orders_count }}</td>
-          <td>{{ "%.0f"|format(row.revenue) }} ₽</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="3" class="text-center">Нет данных</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="section-title">Выручка по дням (всего)</div>
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>День</th><th>Заказов</th><th>Выручка</th></tr></thead>
+        <tbody>
+          {% for row in by_day %}
+          <tr>
+            <td>{{ row.day }}</td>
+            <td>{{ row.orders_count }}</td>
+            <td>{{ "%.0f"|format(row.revenue) }} ₽</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="text-center">Нет данных</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
-</div>
 
-<div class="section-title">Выручка по планам</div>
-<div class="card">
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>План</th><th>Заказов</th><th>Выручка</th></tr></thead>
-      <tbody>
-        {% for row in by_plan %}
-        <tr>
-          <td>{{ row.plan_name or '-' }}</td>
-          <td>{{ row.orders_count }}</td>
-          <td>{{ "%.0f"|format(row.revenue) }} ₽</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="3" class="text-center">Нет данных</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="section-title">Выручка по месяцам</div>
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Месяц</th><th>Заказов</th><th>Выручка</th></tr></thead>
+        <tbody>
+          {% for row in by_month %}
+          <tr>
+            <td>{{ row.month }}</td>
+            <td>{{ row.orders_count }}</td>
+            <td>{{ "%.0f"|format(row.revenue) }} ₽</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="text-center">Нет данных</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
-</div>
 
-<div class="section-title">Выручка по способу оплаты</div>
-<div class="card">
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Способ</th><th>Заказов</th><th>Выручка</th></tr></thead>
-      <tbody>
-        {% for row in by_method %}
-        <tr>
-          <td>{{ row.method }}</td>
-          <td>{{ row.orders_count }}</td>
-          <td>{{ "%.0f"|format(row.revenue) }} ₽</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="3" class="text-center">Нет данных</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="section-title">Выручка по планам</div>
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>План</th><th>Заказов</th><th>Выручка</th></tr></thead>
+        <tbody>
+          {% for row in by_plan %}
+          <tr>
+            <td>{{ row.plan_name or '-' }}</td>
+            <td>{{ row.orders_count }}</td>
+            <td>{{ "%.0f"|format(row.revenue) }} ₽</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="text-center">Нет данных</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
-</div>
 
-<div class="section-title">Активные подписчики</div>
-<div class="card">
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Пользователь</th><th>Email</th><th>Telegram</th><th>Тариф</th><th>Истекает</th><th>Дней осталось</th></tr></thead>
-      <tbody>
-        {% for sub in active_subscribers %}
-        <tr>
-          <td>{{ sub.username or sub.user_id[:8] }}</td>
-          <td>{{ sub.email or '-' }}</td>
-          <td>{{ sub.telegram_id or '-' }}</td>
-          <td>{{ sub.plan_name or '-' }}</td>
-          <td>{{ sub.expires_at[:10] }}</td>
-          <td>{{ sub.days_until_expiry }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="6" class="text-center">Нет активных подписчиков</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="section-title">Выручка по способу оплаты</div>
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Способ</th><th>Заказов</th><th>Выручка</th></tr></thead>
+        <tbody>
+          {% for row in by_method %}
+          <tr>
+            <td>{{ row.method }}</td>
+            <td>{{ row.orders_count }}</td>
+            <td>{{ "%.0f"|format(row.revenue) }} ₽</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="text-center">Нет данных</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
-</div>
 
-{% if expiring_subscribers %}
-<div class="section-title">Истекают в ближайшие 7 дней</div>
-<div class="card">
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Пользователь</th><th>Email</th><th>Telegram</th><th>Тариф</th><th>Истекает</th><th>Дней осталось</th></tr></thead>
-      <tbody>
-        {% for sub in expiring_subscribers %}
-        <tr>
-          <td>{{ sub.username or sub.user_id[:8] }}</td>
-          <td>{{ sub.email or '-' }}</td>
-          <td>{{ sub.telegram_id or '-' }}</td>
-          <td>{{ sub.plan_name or '-' }}</td>
-          <td>{{ sub.expires_at[:10] }}</td>
-          <td>{{ sub.days_until_expiry }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="section-title">Активные подписчики</div>
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Пользователь</th><th>Email</th><th>Telegram</th><th>Тариф</th><th>Истекает</th><th>Дней осталось</th></tr></thead>
+        <tbody>
+          {% for sub in active_subscribers %}
+          <tr>
+            <td>{{ sub.username or sub.user_id[:8] }}</td>
+            <td>{{ sub.email or '-' }}</td>
+            <td>{{ sub.telegram_id or '-' }}</td>
+            <td>{{ sub.plan_name or '-' }}</td>
+            <td>{{ sub.expires_at[:10] }}</td>
+            <td>{{ sub.days_until_expiry }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center">Нет активных подписчиков</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
-</div>
-{% endif %}
 
-{% if servers %}
-<div class="section-title">Серверы панели ({{ servers|length }})</div>
-<div class="card">
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>#</th><th>Название</th><th>Хост</th><th>Протоколы</th></tr></thead>
-      <tbody>
-        {% for s in servers %}
-        <tr>
-          <td>{{ s.server_id }}</td>
-          <td>{{ s.server.name }}</td>
-          <td>{{ s.server.host }}</td>
-          <td>
-            {% for p in s.protocols %}
-              <span class="badge badge-info">{{ p.display_name }}</span>
-            {% else %}
-              <span class="badge badge-dim">нет</span>
-            {% endfor %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  {% if expiring_subscribers %}
+  <div class="section-title">Истекают в ближайшие 7 дней</div>
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Пользователь</th><th>Email</th><th>Telegram</th><th>Тариф</th><th>Истекает</th><th>Дней осталось</th></tr></thead>
+        <tbody>
+          {% for sub in expiring_subscribers %}
+          <tr>
+            <td>{{ sub.username or sub.user_id[:8] }}</td>
+            <td>{{ sub.email or '-' }}</td>
+            <td>{{ sub.telegram_id or '-' }}</td>
+            <td>{{ sub.plan_name or '-' }}</td>
+            <td>{{ sub.expires_at[:10] }}</td>
+            <td>{{ sub.days_until_expiry }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
+  {% endif %}
+
+  {% if servers %}
+  <div class="section-title">Серверы панели ({{ servers|length }})</div>
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Название</th><th>Хост</th><th>Протоколы</th></tr></thead>
+        <tbody>
+          {% for s in servers %}
+          <tr>
+            <td>{{ s.server_id }}</td>
+            <td>{{ s.server.name }}</td>
+            <td>{{ s.server.host }}</td>
+            <td>
+              {% for p in s.protocols %}
+                <span class="badge badge-info">{{ p.display_name }}</span>
+              {% else %}
+                <span class="badge badge-dim">нет</span>
+              {% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <div class="alert alert-warning mt-2">Не удалось получить список серверов из панели. Проверьте настройки подключения.</div>
+  {% endif %}
 </div>
-{% else %}
-<div class="alert alert-warning mt-2">Не удалось получить список серверов из панели. Проверьте настройки подключения.</div>
-{% endif %}
 {% endblock %}
