@@ -116,6 +116,15 @@ def _brand():
     }
 
 
+def _tg_login_ctx() -> dict:
+    """Template context for the Telegram Login Widget (hidden when unconfigured)."""
+    username = services.get_telegram_bot_username()
+    if not username:
+        return {}
+    shop_url = (database.get_setting("shop_public_url", "http://127.0.0.1:8080") or "").rstrip("/")
+    return {"tg_bot_username": username, "tg_auth_url": f"{shop_url}/auth/telegram"}
+
+
 def money(amount):
     if amount is None:
         return "—"
@@ -170,7 +179,42 @@ async def index(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return render(request, "login.html")
+    return render(request, "login.html", **_tg_login_ctx())
+
+
+@app.get("/auth/telegram")
+async def auth_telegram(request: Request):
+    """Telegram Login Widget callback: verify, link-or-create, log in.
+
+    The widget proves ownership of a numeric Telegram id. Linking it to the
+    site account makes the bot resolve the SAME user row, so subscriptions
+    created on the site show up in Telegram automatically.
+    """
+    data = services.verify_telegram_login(dict(request.query_params),
+                                          database.get_setting("telegram_bot_token", ""))
+    if not data:
+        return render(request, "login.html",
+                      error="Не удалось войти через Telegram. Попробуйте ещё раз.",
+                      **_tg_login_ctx(), status_code=401)
+    tg_id = str(data["id"])
+    user = services.get_user_by_telegram(tg_id)
+    if not user:
+        base = re.sub(r"[^A-Za-z0-9_.-]", "", str(data.get("username") or f"tg_{tg_id}")).strip() or f"tg_{tg_id}"
+        username, suffix = base, 0
+        while services.get_user_by_username(username):
+            suffix += 1
+            username = f"{base}_{suffix}"
+        user = services.create_user(username=username, email="")
+        services.attach_telegram(user["id"], tg_id)
+        user = services.get_user_by_id(user["id"])
+    request.session["user"] = {
+        "id": user["id"],
+        "username": user["username"],
+        "email": user["email"],
+        "telegram_id": user["telegram_id"],
+        "role": user["role"],
+    }
+    return RedirectResponse(url="/dashboard", status_code=303)
 
 
 @app.post("/login")
@@ -181,7 +225,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
     finally:
         conn.close()
     if not row or not verify_password(password, row["password_hash"]) or not row["enabled"]:
-        return render(request, "login.html", error="Неверный логин или пароль", status_code=401)
+        return render(request, "login.html", error="Неверный логин или пароль", **_tg_login_ctx(), status_code=401)
     user = dict(row)
     request.session["user"] = {
         "id": user["id"],
@@ -205,7 +249,8 @@ async def register_page(request: Request):
     # Capture referral from ?ref=CODE and store in a 30-day cookie
     ref = (request.query_params.get("ref") or "").strip().upper()
     resp = templates.TemplateResponse(request, "register.html",
-                                      {"user": get_current_user(request), "brand": _brand(), "ref": ref})
+                                      {"user": get_current_user(request), "brand": _brand(), "ref": ref,
+                                       **_tg_login_ctx()})
     if ref:
         resp.set_cookie("shop_ref", ref, max_age=60 * 60 * 24 * 30, httponly=True, samesite="lax")
     return resp
@@ -221,15 +266,15 @@ async def register(
 ):
     username = username.strip()
     if len(username) < 3:
-        return render(request, "register.html", error="Логин слишком короткий", status_code=400)
+        return render(request, "register.html", error="Логин слишком короткий", **_tg_login_ctx(), status_code=400)
     if not re.match(r"^[A-Za-z0-9_.-]+$", username):
-        return render(request, "register.html", error="Логин может содержать только латиницу, цифры, _ . -", status_code=400)
+        return render(request, "register.html", error="Логин может содержать только латиницу, цифры, _ . -", **_tg_login_ctx(), status_code=400)
     if email and not email_valid(email):
-        return render(request, "register.html", error="Некорректный email", status_code=400)
+        return render(request, "register.html", error="Некорректный email", **_tg_login_ctx(), status_code=400)
     if len(password) < 6:
-        return render(request, "register.html", error="Пароль слишком короткий (мин. 6 символов)", status_code=400)
+        return render(request, "register.html", error="Пароль слишком короткий (мин. 6 символов)", **_tg_login_ctx(), status_code=400)
     if password != password2:
-        return render(request, "register.html", error="Пароли не совпадают", status_code=400)
+        return render(request, "register.html", error="Пароли не совпадают", **_tg_login_ctx(), status_code=400)
 
     ref_code = (request.cookies.get("shop_ref") or "").upper().strip()
 
@@ -237,7 +282,7 @@ async def register(
     try:
         exists = conn.execute("SELECT id FROM app_users WHERE username = ?", (username,)).fetchone()
         if exists:
-            return render(request, "register.html", error="Пользователь с таким логином уже существует", status_code=400)
+            return render(request, "register.html", error="Пользователь с таким логином уже существует", **_tg_login_ctx(), status_code=400)
         new_id = str(uuid.uuid4())
         referral_code = services.generate_referral_code(conn)
 
@@ -628,7 +673,7 @@ async def profile_page(request: Request):
         ).fetchall()]
     finally:
         conn.close()
-    return render(request, "user/profile.html", user=user, app_user=app_user, notifications=notifications)
+    return render(request, "user/profile.html", user=user, app_user=app_user, notifications=notifications, **_tg_login_ctx())
 
 
 @app.post("/dashboard/profile/auto-renewal/toggle")
@@ -700,26 +745,29 @@ async def balance_page(request: Request):
 async def profile_save(
     request: Request,
     email: str = Form(""),
-    telegram_id: str = Form(""),
+    telegram_id: Optional[str] = Form(None),
     current_password: str = Form(""),
     new_password: str = Form(""),
 ):
     user = require_user(request)
     if email and not email_valid(email):
-        return render(request, "user/profile.html", user=user, error="Некорректный email")
+        return render(request, "user/profile.html", user=user, error="Некорректный email", **_tg_login_ctx())
     if new_password and len(new_password) < 6:
-        return render(request, "user/profile.html", user=user, error="Новый пароль слишком короткий")
+        return render(request, "user/profile.html", user=user, error="Новый пароль слишком короткий", **_tg_login_ctx())
 
     conn = database.get_db()
     try:
         row = conn.execute("SELECT * FROM app_users WHERE id = ?", (user["id"],)).fetchone()
         if new_password:
             if not row or not verify_password(current_password, row["password_hash"]):
-                return render(request, "user/profile.html", user=user, error="Текущий пароль неверен")
+                return render(request, "user/profile.html", user=user, error="Текущий пароль неверен", **_tg_login_ctx())
             conn.execute(
                 "UPDATE app_users SET password_hash = ? WHERE id = ?",
                 (hash_password(new_password), user["id"]),
             )
+        if telegram_id is None:
+            # Linked via Telegram widget — a missing field must not wipe it.
+            telegram_id = (row["telegram_id"] if row else "") or ""
         conn.execute(
             "UPDATE app_users SET email = ?, telegram_id = ? WHERE id = ?",
             (email, telegram_id, user["id"]),

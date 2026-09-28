@@ -72,9 +72,20 @@
       <input class="form-control" type="email" name="email" value="{{ user.email or '' }}">
     </div>
     <div class="form-group">
-      <label>Telegram ник</label>
-      <input class="form-control" name="telegram_id" value="{{ user.telegram_id or '' }}" placeholder="Например @username">
-      <small class="muted">Укажите @ник для входа через бота</small>
+      <label>Telegram</label>
+      {% set tg = user.telegram_id or '' %}
+      {% if tg and tg.isdigit() %}
+        <div>Привязан: <strong class="cab-num">{{ tg }}</strong> — подписки синхронизируются с ботом.</div>
+      {% elif tg %}
+        <div class="alert alert-warning">Сейчас указано «{{ tg }}» — это ник, а не ID, бот его не найдёт. Перепривяжите через кнопку ниже.</div>
+      {% else %}
+        <div class="muted mb-1">Не привязан. Привяжите, чтобы бот видел ваши подписки.</div>
+      {% endif %}
+      {% if tg_bot_username %}
+      <div class="mt-1">
+        <script async src="https://telegram.org/js/telegram-widget.js?22" data-telegram-login="{{ tg_bot_username }}" data-size="medium" data-auth-url="{{ tg_auth_url }}" data-request-access="write"></script>
+      </div>
+      {% endif %}
     </div>
     <hr style="border:none; border-top:1px solid var(--border); margin:20px 0;">
     <div class="card-sub mb-2">Смена пароля</div>

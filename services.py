@@ -124,6 +124,61 @@ def attach_telegram(user_id: str, telegram_id) -> None:
         conn.close()
 
 
+def verify_telegram_login(params: dict, bot_token: str, max_age: int = 86400) -> dict | None:
+    """Verify Telegram Login Widget callback data.
+
+    Returns the auth fields (id, username, ...) when the HMAC hash matches
+    and auth_date is fresh, otherwise None. Never raises on bad input.
+    """
+    import hashlib
+    import hmac as hmac_lib
+    import time
+
+    data = dict(params or {})
+    received = data.pop("hash", None)
+    if not received or not bot_token:
+        return None
+    try:
+        check = "\n".join(f"{k}={data[k]}" for k in sorted(data))
+    except Exception:
+        return None
+    secret = hashlib.sha256(bot_token.encode("utf-8")).digest()
+    if hmac_lib.new(secret, check.encode("utf-8"), hashlib.sha256).hexdigest() != received:
+        return None
+    try:
+        if abs(time.time() - int(data.get("auth_date", 0))) > max_age:
+            return None
+    except (TypeError, ValueError):
+        return None
+    if "id" not in data:
+        return None
+    return data
+
+
+def get_telegram_bot_username() -> str:
+    """Bot username for the Telegram Login Widget (cached in settings).
+
+    Resolved once via Bot API getMe and cached; empty string when no bot
+    token is configured (widget hidden in that case).
+    """
+    cached = (database.get_setting("telegram_bot_username", "") or "").strip()
+    if cached:
+        return cached
+    token = (database.get_setting("telegram_bot_token", "") or "").strip()
+    if not token:
+        return ""
+    try:
+        import httpx
+
+        resp = httpx.get(f"https://api.telegram.org/bot{token}/getMe", timeout=10)
+        username = ((resp.json().get("result") or {}).get("username") or "").strip()
+        if username:
+            database.set_setting("telegram_bot_username", username)
+        return username
+    except Exception:
+        return ""
+
+
 def create_user(username: str, email: str = "", password: str = "") -> dict:
     """Create a new local shop user (used by the bot). Password may be empty."""
     from auth import hash_password

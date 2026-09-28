@@ -1,0 +1,6 @@
+# Patched Amnezia panel 1.6.7: allow Bearer tokens on POST /api/users/add.
+# Rebuild after every upstream panel update: the patch script asserts its
+# single anchor, so a changed upstream fails the build loudly, not silently.
+FROM ghcr.io/prvtpro/amnezia-panel:latest
+COPY patch_api_add_bearer.py /tmp/patch_api_add_bearer.py
+RUN python3 /tmp/patch_api_add_bearer.py && rm /tmp/patch_api_add_bearer.py
