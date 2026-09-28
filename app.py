@@ -948,7 +948,7 @@ async def admin_plans_update(
     description: str = Form(""),
     price_rub: float = Form(...),
     duration_days: int = Form(...),
-    is_active: int = Form(1),
+    is_active: int = Form(0),
 ):
     require_admin(request)
     price_rub = money_utils.to_rub(price_rub)
