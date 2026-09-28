@@ -257,7 +257,22 @@ async def _finish_registration(message, state: FSMContext, ref_code: str):
 @dp.callback_query(MenuCB.filter(F.action == "menu"))
 async def m_menu(cb: CallbackQuery, state: FSMContext):
     await state.clear()
-    await cb.message.answer("Главное меню:", reply_markup=main_menu())
+    user = resolve_user(cb.from_user.id)
+    if not user:
+        await _need_account(cb)
+        return
+    subscription = services.get_active_subscription(user["id"])
+    balance = services.get_balance(user["id"])
+    status = "✅ Активна" if subscription else "❌ Отсутствует"
+    expires = f"\n⏳ До {subscription['expires_at'][:10]}" if subscription and subscription.get("expires_at") else ""
+    text = (
+        f"👤 {user['username']}\n"
+        f"📱 Подписка\n"
+        f"{status}{expires}\n"
+        f"🚀 Активировать тестовую подписку\n"
+        f"💰 Баланс: {balance} ₽"
+    )
+    await cb.message.edit_text(text, reply_markup=main_menu())
 
 
 @dp.callback_query(MenuCB.filter(F.action == "plans"))
@@ -266,7 +281,7 @@ async def m_plans(cb: CallbackQuery, state: FSMContext):
     if not user:
         await _need_account(cb)
         return
-    await _show_plans(cb.message, state, renew=False)
+    await _show_plans(cb, state, renew=False)
 
 
 @dp.callback_query(MenuCB.filter(F.action == "renew"))
@@ -275,29 +290,32 @@ async def m_renew(cb: CallbackQuery, state: FSMContext):
     if not user:
         await _need_account(cb)
         return
-    await _show_plans(cb.message, state, renew=True)
+    await _show_plans(cb, state, renew=True)
 
 
-async def _show_plans(message, state: FSMContext, renew: bool):
+async def _show_plans(cb: CallbackQuery, state: FSMContext, renew: bool = False):
+    user = resolve_user(cb.from_user.id)
+    if not user:
+        await _need_account(cb)
+        return
     plans = services.list_active_plans()
     if not plans:
-        await message.answer("Пока нет доступных тарифов.")
+        await cb.answer("Пока нет доступных тарифов.", show_alert=True)
         return
     if renew:
         await state.update_data(renew=True)
         head = "Выберите тариф для <b>продления</b>:"
     else:
         await state.update_data(renew=False)
-        head = "Выберите тариф <b>Магазин</b>:"
-    buttons = [
-        InlineKeyboardButton(
-            text=f"{p['name']} — {money(p['price_rub'])} / {p['duration_days']} дн.",
-            callback_data=PlanCB(id=p["id"]).pack(),
-        )
-        for p in plans
-    ]
-    kb = _markup(*[[b] for b in buttons], menu_btn())
-    await message.answer(head, reply_markup=kb)
+        head = "Выберите тариф <b>🛒 Купить подписку</b>:"
+    buttons = []
+    for plan in plans:
+        buttons.append([InlineKeyboardButton(
+            f"{plan['name']} — {money(plan['price_rub'])} ₽ — {plan['duration_days']} дн.",
+            callback_data=f"plan:{plan['id']}:{renew}"
+        )])
+    kb = _markup(*buttons, [InlineKeyboardButton(text="◀️ Меню", callback_data=MenuCB(action="menu").pack())])
+    await cb.message.edit_text(head, reply_markup=kb)
 
 
 @dp.callback_query(PlanCB.filter())
