@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{ brand.name }} — {{ brand.subtitle }}</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v={{ style_v }}">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/unbounded@5/500.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/unbounded@5/700.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/manrope@5/400.css">
@@ -22,6 +22,18 @@
       <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M16 3l10 4.5V15c0 7-4.5 11-10 13C10.5 26 6 22 6 15V7.5L16 3z" fill="#0e1512"/><path d="M11 16l3.5 3.5L21 13" stroke="#b7ff45" stroke-width="2.4" stroke-linecap="round"/></svg>
       <span>3<em>set</em><span class="tld">.online</span></span>
     </a>
+    <div class="header-nav">
+      {% if user %}
+        <a href="/dashboard">Кабинет</a>
+        <a href="/dashboard/orders">Заказы</a>
+        <a href="/dashboard/support">Поддержка</a>
+        {% if user.role == 'admin' %}
+          <a href="/admin">Админ</a>
+        {% elif user.role == 'support' %}
+          <a href="/admin/support">Поддержка</a>
+        {% endif %}
+      {% endif %}
+    </div>
     {% if user %}
     <div class="nav-user">
       <div class="balance-badge" title="Пополнить баланс">
@@ -39,18 +51,6 @@
       </div>
     </div>
     {% endif %}
-    <div class="header-nav">
-      {% if user %}
-        <a href="/dashboard">Кабинет</a>
-        <a href="/dashboard/orders">Заказы</a>
-        <a href="/dashboard/support">Поддержка</a>
-        {% if user.role == 'admin' %}
-          <a href="/admin">Админ</a>
-        {% elif user.role == 'support' %}
-          <a href="/admin/support">Поддержка</a>
-        {% endif %}
-      {% endif %}
-    </div>
   </div>
 </header>
 

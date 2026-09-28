@@ -43,6 +43,17 @@ def _header_balance(request: Request):
 templates.env.globals["header_balance"] = _header_balance
 
 
+def _style_version() -> int:
+    """Cache-buster for style.css (mtime at startup; 0 if unreadable)."""
+    try:
+        return int(os.path.getmtime(os.path.join(BASE_DIR, "static", "style.css")))
+    except OSError:
+        return 0
+
+
+templates.env.globals["style_v"] = _style_version()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     database.init_db()

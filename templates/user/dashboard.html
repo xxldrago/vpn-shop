@@ -73,6 +73,7 @@
   <div class="lnd-sec">
     <span class="lnd-kicker">Подключения · {{ connections|length }}</span>
     <h2 class="lnd-h">Ваши конфигурации</h2>
+    <div class="lnd-cfgs">
     {% for c in connections %}
     <div class="lnd-cfg">
       <div class="lnd-cfg-top">
@@ -92,6 +93,7 @@
       </div>
     </div>
     {% endfor %}
+    </div>
   </div>
   {% endif %}
 
